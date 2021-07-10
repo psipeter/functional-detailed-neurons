@@ -1,13 +1,16 @@
 import numpy as np
 import nengo
+from hyperopt import fmin, tpe, hp, STATUS_OK, Trials, base
+from nengolib import Lowpass, DoubleExp
+from nengo.solvers import LstsqL2
+from nengo.utils.numpy import rmse
 
 class LearningNode(nengo.Node):
-    def __init__(self, pre, post, tar, dim, conn, w=None, e=None, d=None, e_rate=1e-6, d_rate=1e-6, exc=False, inh=False):
+    def __init__(self, pre, post, dim, conn, w=None, e=None, d=None, e_rate=1e-6, d_rate=1e-6, exc=False, inh=False):
         self.pre = pre
         self.post = post
-        self.tar = tar
         self.conn = conn  # facilitates NEURON connections
-        self.size_in = pre.n_neurons + post.n_neurons + tar.n_neurons + dim
+        self.size_in = pre.n_neurons + post.n_neurons + post.n_neurons + dim
         self.size_out = post.n_neurons
         # 'encoders' is a connection-specific tensor used to compute weights; shape (Npre, Npost, d)
         self.d = d if np.any(d) else np.zeros((pre.n_neurons, dim))
@@ -23,8 +26,8 @@ class LearningNode(nengo.Node):
     def step(self, t, x):
         aPre = x[:self.pre.n_neurons]  # presynaptic activities
         aPost = x[self.pre.n_neurons: self.pre.n_neurons+self.post.n_neurons]  # postsynaptic activities
-        aTar = x[self.pre.n_neurons+self.post.n_neurons: self.pre.n_neurons+self.post.n_neurons+self.tar.n_neurons]  # target activities
-        xTar = x[self.pre.n_neurons+self.post.n_neurons+self.tar.n_neurons:]  # state-space target for decoder update
+        aTar = x[self.pre.n_neurons+self.post.n_neurons: self.pre.n_neurons+self.post.n_neurons+self.post.n_neurons]  # target activities
+        xTar = x[self.pre.n_neurons+self.post.n_neurons+self.post.n_neurons:]  # state-space target for decoder update
         '''decoder update'''
         xPre = np.dot(aPre, self.d)
         aPre2 = aPre.reshape((-1, 1))
@@ -53,15 +56,16 @@ class LearningNode(nengo.Node):
 
 
 
-def trainDF(spikes, targets, nTrain,
-    dt=0.001, dtSample=0.001, reg=1e-3, penalty=0, evals=100, name="default",
+def trainDF(spikes, targets, nTrain, network, neuron_type,
+    dt=0.001, dtSample=0.001, reg=1e-3, penalty=0, evals=100, seed=0,
     tauRiseMin=1e-3, tauRiseMax=3e-2, tauFallMin=1e-2, tauFallMax=3e-1):
 
-    np.savez_compressed('data/%s_spikes.npz'%name, spikes=spikes)
-    np.savez_compressed('data/%s_target.npz'%name, target=target)
+    np.savez_compressed(f'data/{network}/{neuron_type}_spikes.npz', spikes=spikes)
+    np.savez_compressed(f'data/{network}/{neuron_type}_target.npz', targets=targets)
     hyperparams = {}
     hyperparams['nTrain'] = nTrain
-    hyperparams['name'] = name
+    hyperparams['network'] = network
+    hyperparams['neuron_type'] = neuron_type
     hyperparams['reg'] = reg
     hyperparams['dt'] = dt
     hyperparams['dtSample'] = dtSample
@@ -69,13 +73,15 @@ def trainDF(spikes, targets, nTrain,
     hyperparams['tauFall'] = hp.uniform('tauFall', tauFallMin, tauFallMax)
 
     def objective(hyperparams):
+        network = hyperparams['network']
+        neuron_type = hyperparams['neuron_type']
         tauRise = hyperparams['tauRise']
         tauFall = hyperparams['tauFall']
         dt = hyperparams['dt']
         dtSample = hyperparams['dtSample']
         f = DoubleExp(tauRise, tauFall)
-        spikes = np.load('data/%s_spikes.npz'%hyperparams['name'])['spikes']
-        targets = np.load('data/%s_target.npz'%hyperparams['name'])['target']
+        spikes = np.load(f'data/{network}/{neuron_type}_spikes.npz')['spikes']
+        targets = np.load(f'data/{network}/{neuron_type}_target.npz')['targets']
         A = np.zeros((0, spikes.shape[2]))
         Y = np.zeros((0, targets.shape[2]))
         for n in range(hyperparams['nTrain']):

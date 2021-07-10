@@ -48,18 +48,78 @@ def build_lif(model, lif, neurons):
 		output=model.sig[neurons]['out'],
 		states=[model.sig[neurons]['voltage'],
 			model.sig[neurons]['refractory_time']]))
-'''
-An intermediate-complexity neuron developed by Wilson in "Simplified dynamics of human and mammalian neocortical neurons (1999)"
-Extends the FitzHugo-Nagumo equations to incorporate electrophysiological detail,
-including Ohm's Law and equilibrium potentials of four ionic currents in neocortical neurons (K, Na, R, AHP).
-The resulting model consists of three coupled ODEs representing voltage, conductance, and recovery,
-can generate realistic action potentials, and naturally produces adaptation, bursting, and other neocortical behaviors.
-Due to the lower number of equations (and cubic dynamics of each equation),
-simulation is relatively fast and certain analytical characterizations are still possible.
-'''
+
+class Izhikevich(NeuronType):
+	'''
+	This implementation is based on the original paper
+		E. M. Izhikevich, "Simple model of spiking neurons."
+		IEEE Transactions on Neural Networks, vol. 14, no. 6, pp. 1569-1572.
+		(http://www.izhikevich.org/publications/spikes.pdf)
+	What was originally 'v' we term 'voltage', which represents the membrane potential of each neuron.
+	What was originally 'u' we term 'recovery', hich represents membrane recovery, "which accounts for the activation
+	of K+ ionic currents and inactivation of Na+ ionic currents."
+	The 'a', 'b', 'c', and 'd' parameters are also renamed
+
+	We use default values that correspond to regular spiking ('RS') neurons.
+	For other classes of neurons, set the parameters as follows.
+		* Intrinsically bursting (IB): ``reset_voltage=-55, reset_recovery=4``
+		* Chattering (CH): ``reset_voltage=-50, reset_recovery=2``
+		* Fast spiking (FS): ``tau_recovery=0.1``
+		* Low-threshold spiking (LTS): ``coupling=0.25``
+		* Resonator (RZ): ``tau_recovery=0.1, coupling=0.26``
+	'''
+
+	probeable = ("spikes", "voltage", "recovery")
+	tau_recovery = NumberParam("tau_recovery", low=0, low_open=True)
+	coupling = NumberParam("coupling", low=0)
+	reset_voltage = NumberParam("reset_voltage")
+	reset_recovery = NumberParam("reset_recovery")
+
+	def __init__(self, tau_recovery=0.02, coupling=0.2, reset_voltage=-65.0, reset_recovery=8.0):
+		super(Izhikevich, self).__init__()
+		self.tau_recovery = tau_recovery
+		self.coupling = coupling
+		self.reset_voltage = reset_voltage
+		self.reset_recovery = reset_recovery
+
+	def gain_bias(self, max_rates, intercepts):
+		return np.ones_like(max_rates), np.zeros_like(intercepts)
+
+	def max_rates_intercepts(self, gain, bias):
+		return np.zeros_like(gain), np.zeros_like(bias)
+
+	def step_math(self, dt, J, spiked, voltage, recovery):
+		J = np.maximum(-30.0, J)
+		dV = (0.04 * voltage ** 2 + 5 * voltage + 140 - recovery + J) * 1000
+		voltage[:] += dV * dt
+		spiked[:] = (voltage >= 30) / dt
+		voltage[spiked > 0] = self.reset_voltage
+		dU = (self.tau_recovery * (self.coupling * voltage - recovery)) * 1000
+		recovery[:] += dU * dt
+		recovery[spiked > 0] = recovery[spiked > 0] + self.reset_recovery
+
+@Builder.register(Izhikevich)
+def build_izhikevich(model, lif, neurons):
+	model.sig[neurons]['voltage'] = Signal(np.zeros(neurons.size_in), name="%s.voltage" % neurons)
+	model.sig[neurons]['recovery'] = Signal(np.zeros(neurons.size_in), name="%s.recovery" % neurons)
+	model.add_op(SimNeurons(
+		neurons=lif,
+		J=model.sig[neurons]['in'],
+		output=model.sig[neurons]['out'],
+		states=[model.sig[neurons]['voltage'],
+			model.sig[neurons]['recovery']]))
+
 
 class Wilson(NeuronType):
-
+	'''
+	An intermediate-complexity neuron developed by Wilson in "Simplified dynamics of human and mammalian neocortical neurons (1999)"
+	Extends the FitzHugo-Nagumo equations to incorporate electrophysiological detail,
+	including Ohm's Law and equilibrium potentials of four ionic currents in neocortical neurons (K, Na, R, AHP).
+	The resulting model consists of three coupled ODEs representing voltage, conductance, and recovery,
+	can generate realistic action potentials, and naturally produces adaptation, bursting, and other neocortical behaviors.
+	Due to the lower number of equations (and cubic dynamics of each equation),
+	simulation is relatively fast and certain analytical characterizations are still possible.
+	'''
 	probeable = ('spikes', 'voltage', 'recovery', 'conductance', 'AP')
 	threshold = NumberParam('threshold')  # spike threshold
 	tauV = NumberParam('tauV')  # time constant
@@ -82,19 +142,15 @@ class Wilson(NeuronType):
 	def max_rates_intercepts(self, gain, bias):
 		return np.zeros_like(gain), np.zeros_like(bias)
 
-	def ODE(self, t, state, J=0):
-		V, R, H = np.split(state, 3)
-		dV = -(17.81 + 47.58*V + 33.80*np.square(V))*(V-0.48) - 26*R*(V+0.95) - 13*H*(V+0.95) + J
-		dR = -R + 1.29*V + 0.79 + 3.30*np.square(V+0.38)
-		dH = -H + 11*(V+0.754)*(V+0.69)
-		return np.concatenate((dV/self.tauV, dR/self.tauR, dH/self.tauH))
-
-	def step_math(self, dt, J, spiked, V, R, H, AP):
-		timespan = [0, dt]
-		state = np.concatenate((V, R, H))
-		sol = solve_ivp(self.ODE, timespan, state, args=(J,), method='Radau', vectorized=True)  # numerical integration of ODE
-		solV, solR, solH = np.split(sol.y, 3)
-		V[:], R[:], H[:] = solV[0,-1], solR[0,-1], solH[0,-1]  # state at the last timestep
+	def step_math(self, dt, J, spiked, V, R, H, AP, dtOde=1e-4):
+		# Use Euler's Method with a smaller dt to simulate the neural dynamics
+		for t in range(int(dt/dtOde)):
+			dV = -(17.81 + 47.58*V + 33.80*np.square(V))*(V-0.48) - 26*R*(V+0.95) - 13*H*(V+0.95) + J
+			dR = -R + 1.29*V + 0.79 + 3.30*np.square(V+0.38)
+			dH = -H + 11*(V+0.754)*(V+0.69)
+			V[:] += dV*dtOde/self.tauV
+			R[:] += dR*dtOde/self.tauR
+			H[:] += dH*dtOde/self.tauH
 		spiked[:] = (V > self.threshold) & (~AP)
 		spiked /= dt
 		AP[:] = V > self.threshold
@@ -111,18 +167,17 @@ def build_wilsonneuron(model, neuron_type, neurons):
 		states=[model.sig[neurons]['voltage'], model.sig[neurons]['recovery'], model.sig[neurons]['conductance'], model.sig[neurons]['AP']]))
 
 
-'''
-Reproduced from Durstewitz, Seamans, and Sejnowski "Dopamine-Mediated Stabilization of Delay-Period Activity in a Network Model of Prefrontal Cortex (2000)"
-of pyramidal neurons that includes four compartments (soma, proximal-, distal-, and basal-dendrites)
-and six ionic currents (two for sodium, three for potassium, and one for calcium).
-The Durstewitz reconstruction accurately reproduces electrophysiological recordings from layer-V intrinsically-bursting pyramidal neurons in rat PFC,
-cells that are known to be active during the delay period of working memory tasks.
-This neuron model is implemented in NEURON and uses conductance-based synapses, distributed randomly on the three dendritic compartments.
-'''
 
-# The neuron object that is targeted by Nengo methods
-# Includes a call to NEURON to simulate one timestep
 class Pyramidal(NeuronType):
+
+	'''
+	Reproduced from Durstewitz, Seamans, and Sejnowski "Dopamine-Mediated Stabilization of Delay-Period Activity in a Network Model of Prefrontal Cortex (2000)"
+	of pyramidal neurons that includes four compartments (soma, proximal-, distal-, and basal-dendrites)
+	and six ionic currents (two for sodium, three for potassium, and one for calcium).
+	The Durstewitz reconstruction accurately reproduces electrophysiological recordings from layer-V intrinsically-bursting pyramidal neurons in rat PFC,
+	cells that are known to be active during the delay period of working memory tasks.
+	This neuron model is implemented in NEURON and uses conductance-based synapses, distributed randomly on the three dendritic compartments.
+	'''
 
 	probeable = ('spikes', 'voltage')
 	dtNeuron = NumberParam('dtNeuron')  # time constant

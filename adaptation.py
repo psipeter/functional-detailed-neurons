@@ -1,19 +1,28 @@
 import numpy as np
+
+import pandas as pd
+
 import nengo
 from nengo import SpikingRectifiedLinear as ReLu
-from nengo import Izhikevich
 from nengo.dists import Uniform, Choice
 from nengo.solvers import NoSolver
+from nengo.utils.numpy import rmse
+
 from nengolib import Lowpass, DoubleExp
+
 from utils import LearningNode, trainDF, trainD
-from neuron_types import LIF, Wilson, Pyramidal, nrnReset
+from neuron_types import LIF, Izhikevich, Wilson, Pyramidal, nrnReset
+from plotter import plotActivities
+
 import neuron
+
 import matplotlib.pyplot as plt
+
 import seaborn as sns
 sns.set(context='paper', style='white')
 
 
-def makeSignal(t, fIn, dt=0.001, value=1.2, seed=0):
+def makeSignal(t, fIn, dt=0.001, value=1, seed=0):
     stim = nengo.processes.WhiteSignal(period=t, high=1.0, rms=0.5, seed=seed)
     with nengo.Network() as model:
         inpt = nengo.Node(stim)
@@ -30,8 +39,8 @@ def makeSignal(t, fIn, dt=0.001, value=1.2, seed=0):
     stim_func = lambda t: stim[int(t/dt)]
     return stim_func
 
-def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=1,
-    m=Uniform(30, 30), i=Uniform(-0.3, -0.3), e_rate=3e-7, d_rate=1e-6,
+def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
+    m=Uniform(30, 30), e_rate=1e-6, d_rate=3e-6,
     fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1),
     d=None, e=None, w=None, learn=False, stim_func=lambda t: 0):
 
@@ -39,9 +48,9 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=1,
     with nengo.Network() as model:
         inpt = nengo.Node(stim_func)
         tarX = nengo.Ensemble(1, 1, neuron_type=nengo.Direct())
-        tarA = nengo.Ensemble(nEns, 1, max_rates=m, intercepts=i, encoders=[[1]], neuron_type=ReLu(), seed=seed)
+        tarA = nengo.Ensemble(nEns, 1, max_rates=m, neuron_type=ReLu(), seed=seed)
         pre = nengo.Ensemble(nPre, 1, max_rates=m, seed=seed)
-        ens = nengo.Ensemble(nEns, 1, gain=[1], bias=[0], encoders=[[1]], neuron_type=neuron_type, seed=seed)
+        ens = nengo.Ensemble(nEns, 1, neuron_type=neuron_type, seed=seed)
 
         nengo.Connection(inpt, pre, synapse=None)
         nengo.Connection(inpt, tarX, synapse=fTarget)
@@ -49,7 +58,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=1,
         conn = nengo.Connection(pre, ens, synapse=fTarget, solver=NoSolver(weights, weights=True))
 
         if learn:
-            node = LearningNode(pre, ens, tarX, 1, conn=conn, d=d, e=e, w=w, e_rate=e_rate, d_rate=d_rate)
+            node = LearningNode(pre, ens, 1, conn=conn, d=d, e=e, w=w, e_rate=e_rate, d_rate=d_rate)
             nengo.Connection(pre.neurons, node[:nPre], synapse=fTarget)
             nengo.Connection(ens.neurons, node[nPre: nPre+nEns], synapse=fSmooth)
             nengo.Connection(tarA.neurons, node[nPre+nEns: nPre+nEns+nEns], synapse=fSmooth)
@@ -59,6 +68,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=1,
         pInpt = nengo.Probe(inpt, synapse=None)
         pPre = nengo.Probe(pre.neurons, synapse=None)
         pEns = nengo.Probe(ens.neurons, synapse=None)
+        pV = nengo.Probe(ens.neurons, 'voltage', synapse=None)
         pTarA = nengo.Probe(tarA.neurons, synapse=None)
         pTarX = nengo.Probe(tarX, synapse=None)
 
@@ -75,6 +85,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=1,
         inpt=sim.data[pInpt],
         pre=sim.data[pPre],
         ens=sim.data[pEns],
+        voltage=sim.data[pV],
         tarA=sim.data[pTarA],
         tarX=sim.data[pTarX],
         e=e,
@@ -82,144 +93,117 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=1,
         w=w,
     )
 
-def run(neuron_type, nTrain, tTrain, tTest, rate, intercept,
-    nEns=30, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), nBins=21, load=False):
+def run(neuron_type, nTrain, nTest, tTrain, tTest,
+    nEns=30, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), nBins=21, randomNeuron=10, load=[]):
 
     print(f'Neuron type: {neuron_type}')
-    if load:
-        data = np.load(f"data/tuning_curve/{neuron_type}.npz")
+    if 1 in load:
+        data = np.load(f"data/adaptation/{neuron_type}.npz")
         d, e, w = data['d'], data['e'], data['w']
-        dOutNoF, dOut, tauRiseOut, tauFallOut = data['dOutNoF'], data['dOut'], data['tauRiseOut'], data['tauFallOut']
-        fOut = DoubleExp(tauRiseOut, tauFallOut)
     else:
-        # train d, e, w
+        print('train d, e, w from pre to ens')
         d, e, w = None, None, None
         for n in range(nTrain):
-            stim_func = makeSignal(tTrain, fTarget, dt=dt, seed=n)
+            stim_func = makeSignal(tTrain, fTarget, value=1.2, dt=dt, seed=n)
             data = go(neuron_type, learn=True,
-                nEns=nEns, t=tTrain, dt=dt, m=Uniform(rate, rate), i=Uniform(intercept, intercept),
+                nEns=nEns, t=tTrain, dt=dt,
                 d=d, e=e, w=w,
                 fTarget=fTarget, fSmooth=fSmooth, stim_func=stim_func)
             d, e, w = data['d'], data['e'], data['w']
+            np.savez(f"data/adaptation/{neuron_type}.npz", d=d, e=e, w=w)
+            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+                "adaptation", neuron_type, n, nTrain)
 
-            times = data['times']
-            tarX = fTarget.filt(data['inpt'], dt=dt)
-            aEns = fSmooth.filt(data['ens'], dt=dt)
-            aTarA = fSmooth.filt(data['tarA'], dt=dt)
-            aPre = fTarget.filt(data['pre'], dt=dt)
-            xPre = np.dot(aPre, data['d'])
-
-            fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=((6, 3)))
-            ax.plot(times, tarX, label="input", color='k')
-            ax.plot(times, xPre, label="xPre")
-            ax.axhline(intercept, color='k', label="intercept", linestyle='--')
-            ax.set(xlim=((0, tTrain)), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\mathbf{x}$(t)")
-            ax2.plot(times, aEns, label='ens') 
-            ax2.plot(times, aTarA, label='target') 
-            ax.legend(loc='upper right', frameon=False)
-            ax2.legend(loc='upper right', frameon=False)
-            ax2.set(xlim=((0, tTrain)), xticks=((0, tTrain)), ylim=((0, rate)), xlabel='time (s)', ylabel=r"$a(t)$ (Hz)")
-            sns.despine()
-            plt.tight_layout()
-            fig.savefig(f'plots/tuning_curve/train_{neuron_type}_{n+1}outof{nTrain}.pdf')
-            plt.close('all')
-
-        # train dOut, fOut
-        targets = np.zeros((nTrain, int(t/dt), 1))
-        spikes = np.zeros((nTrain, int(t/dt), nEns))
+    if 2 in load:
+        dOutNoF, dOut, tauRiseOut, tauFallOut = data['dOutNoF'], data['dOut'], data['tauRiseOut'], data['tauFallOut']
+        fOut = DoubleExp(tauRiseOut, tauFallOut)
+    else:
+        print('train readout decoders and filters')
+        targets = np.zeros((nTrain, int(tTrain/dt), 1))
+        spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
-            stim_func = makeSignal(tTrain, fTarget, dt=dt, seed=n)
+            stim_func = makeSignal(tTrain, fTarget, value=1.2, dt=dt, seed=n)
             data = go(neuron_type, learn=False,
-                nEns=nEns, t=tTrain, dt=dt, m=Uniform(rate, rate), i=Uniform(intercept, intercept),
+                nEns=nEns, t=tTrain, dt=dt,
                 d=d, e=e, w=w,
                 fTarget=fTarget, fSmooth=fSmooth, stim_func=stim_func)
             targets[n] = fTarget.filt(data['tarX'], dt=dt)
             spikes[n] = data['ens']
-        dOut, tauRiseOut, tauFallOut = trainDF(spikes, targets, nTrain, dt=dt, name="adaptation")
+
+        dOut, tauRiseOut, tauFallOut = trainDF(spikes, targets, nTrain, dt=dt, network="adaptation", neuron_type=neuron_type)
         fOut = DoubleExp(tauRiseOut, tauFallOut)
         dOutNoF = trainD(spikes, targets, nTrain, fTarget, dt=dt)
+        np.savez(f"data/adaptation/{neuron_type}.npz",
+            d=d, e=e, w=w,
+            dOutNoF=dOutNoF, dOut=dOut, tauRiseOut=tauRiseOut, tauFallOut=tauFallOut)
 
+    dfs = []
+    columns = ('neuron_type', 'n', 'error', 'filter')
+    print('estimating error')
+    for n in range(nTest):
+        stim_func = makeSignal(tTest, fTarget, dt=dt, seed=100+n)
+        data = go(neuron_type, learn=False,
+            nEns=nEns, t=tTest, dt=dt,
+            d=d, e=e, w=w,
+            fTarget=fTarget, fSmooth=fSmooth, stim_func=stim_func)
+        times = data['times']
+        tarX = fTarget.filt(data['tarX'], dt=dt)
+        aEnsNoF = fTarget.filt(data['ens'], dt=dt)
+        aEns = fOut.filt(data['ens'], dt=dt)
+        xhatNoF = np.dot(aEnsNoF, dOutNoF)
+        xhat = np.dot(aEns, dOut)
+        dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, rmse(xhatNoF, tarX), "default"]], columns=columns))
+        dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, rmse(xhat, tarX), "trained"]], columns=columns))
 
-        np.savez(f"data/tuning_curve/{neuron_type}.npz", d=d, e=e, w=w)
-
-    stim_func = makeSignal(tTest, fTarget, dt=dt, seed=100)
+    print('estimating spike adaptation')
+    stim_func = lambda t: 0
     data = go(neuron_type, learn=False,
+        nEns=nEns, t=tTest, dt=dt,
         d=d, e=e, w=w,
-        t=tTest, dt=dt, m=Uniform(rate, rate), i=Uniform(intercept, intercept),
         fTarget=fTarget, fSmooth=fSmooth, stim_func=stim_func)
-    times = data['times']
-    tarX = fTarget.filt(data['inpt'], dt=dt)
-    aEns = fSmooth.filt(data['ens'], dt=dt)
-    aTarA = fSmooth.filt(data['tarA'], dt=dt)
+    spike_times = np.where(data['ens'][:,randomNeuron]>0)[0]
+    isi = [x - spike_times[i-1] for i, x in enumerate(spike_times)][1:]
+    isi_range = (np.max(isi) - np.min(isi)) / np.max(isi)
 
-    return times, tarX, aEns, aTarA
+    return times, tarX, xhatNoF, xhat, isi_range, dfs
 
-def compare(neuron_types, neuron_labels=['LIF', 'Izhikevich', 'Wilson', 'Durstewitz'],
-        nTrain=30, tTrain=10, tTest=100, rate=30, intercept=-0.3, nBins=21, tPlot=30, load=False):
-    
-    bins = np.linspace(-1, 1, nBins)
-    activities = []
-    binned_activities = []
-    mean_activities = []
-    CI_activities = []
+def compare(neuron_types, nTrain=10, tTrain=10, nTest=10, tTest=10, load=[]):
+
+    dfsAll = []
+    dfsISI = []
+    columns = ('neuron_type', 'n', 'error', 'filter')
+    columnsISI = ('neuron_type', 'ISI change')
+    fig, axes = plt.subplots(nrows=len(neuron_types)+1, ncols=1, figsize=((6, 2*len(neuron_types))), sharex=True)
     for i, neuron_type in enumerate(neuron_types):
-        times, tarX, aEns, aTarA = run(neuron_type, nTrain, tTrain, tTest, rate, intercept, load=load)
-        activities.append(aEns)
-        binned_activities.append([])
-        mean_activities.append(np.zeros((nBins, 1)))
-        CI_activities.append(np.zeros((2, nBins)))
-        for b in range(len(bins)):
-            binned_activities[i].append([])
-        for t in range(len(times)):
-            idx = (np.abs(bins - tarX[t])).argmin()
-            binned_activities[i][idx].append(aEns[t][0])
-        for b in range(len(bins)):
-            mean_activities[i][b] = np.mean(binned_activities[i][b])
-            if mean_activities[i][b] > 0:
-                CI_activities[i][0][b] = sns.utils.ci(binned_activities[i][b], which=95)[0]
-                CI_activities[i][1][b] = sns.utils.ci(binned_activities[i][b], which=95)[1]
+        times, tarX, xhatNoF, xhat, isi, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, load=load)
+        dfsAll.extend(dfs)
+        dfsISI.append(pd.DataFrame([[str(neuron_type)[:-2], isi]], columns=columnsISI))
+        axes[i+1].plot(times, xhatNoF, label=r"$h_{\mathrm{default}}$")
+        axes[i+1].plot(times, xhat, label=r"$h_{\mathrm{trained}}$")
+        axes[i+1].set(ylabel=f"{str(neuron_type)[:-2]}", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
+        sns.despine(ax=axes[i+1], bottom=True)
+    df = pd.concat([df for df in dfsAll], ignore_index=True)
+    dfISI = pd.concat([df for df in dfsISI], ignore_index=True)
 
-    # bin target activities
-    neuron_types.append('ReLu()')
-    neuron_labels.append('ReLu (target)')
-    activities.append(aTarA)
-    binned_activities.append([])
-    mean_activities.append(np.zeros((nBins, 1)))
-    CI_activities.append(np.zeros((2, nBins)))
-    for b in range(len(bins)):
-        binned_activities[-1].append([])
-    for t in range(len(times)):
-        idx = (np.abs(bins - tarX[t])).argmin()
-        binned_activities[-1][idx].append(aTarA[t][0])
-    for b in range(len(bins)):
-        mean_activities[-1][b] = np.mean(binned_activities[-1][b])
-        if mean_activities[-1][b] > 0:
-            CI_activities[-1][0][b] = sns.utils.ci(binned_activities[-1][b], which=95)[0]
-            CI_activities[-1][1][b] = sns.utils.ci(binned_activities[-1][b], which=95)[1]
+    axes[0].plot(times, tarX, label='target', color='k')
+    axes[0].set(ylabel=r"$\mathbf{x}(t)$", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
+    axes[0].legend(loc='upper right', frameon=False)
+    axes[1].legend(loc='upper right', frameon=False)
+    axes[-1].set(xlabel='time (s)', xticks=((0, tTest)))
+    sns.despine(ax=axes[0], bottom=True)
+    sns.despine(ax=axes[-1], bottom=False)
+    plt.tight_layout()
+    fig.savefig('plots/figures/adaptation_state.pdf')
+    fig.savefig('plots/figures/adaptation_state.svg')
 
-    fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=((6, 4)))
-    ax.plot(times, tarX, label="input", color='k')
-    ax.axhline(intercept, color='k', linestyle='--')
-    ax.set(xlim=((0, tPlot)), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\mathbf{x}$(t)")
-    for i in range(len(neuron_types)):
-        ax2.plot(times, activities[i], label=neuron_labels[i], alpha=0.5)
-    ax2.legend(loc='upper right', frameon=False)
-    ax2.set(xlim=((0, tPlot)), xticks=((0, tPlot)), ylim=((0, rate+5)), yticks=((0, rate)), xlabel='time (s)', ylabel=r"$a(t)$ (Hz)")
+    fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, figsize=((6, 3)), sharex=True)
+    sns.barplot(data=df, x='neuron_type', y='error', hue='filter', ax=ax)
+    ax.set(xlabel='', ylim=((0, 0.2)), yticks=((0, 0.2)))
+    ax.legend(loc='upper right', frameon=False)
+    sns.barplot(data=dfISI, x='neuron_type', y='ISI change', ax=ax2)
+    ax2.set(xlabel='', ylim=((0, 0.8)), yticks=((0, 0.8)))
     sns.despine()
-    plt.tight_layout()
-    fig.savefig(f'plots/figures/tuning_curve_activity.pdf')
-    fig.savefig(f'plots/figures/tuning_curve_activity.svg')
+    fig.savefig('plots/figures/adaptation_barplot.pdf')
+    fig.savefig('plots/figures/adaptation_barplot.svg')
 
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((6, 4)))
-    for i in range(len(neuron_types)):
-        ax.fill_between(bins, CI_activities[i][0], CI_activities[i][1], alpha=0.1)
-        ax.plot(bins, mean_activities[i], label=neuron_labels[i])
-    ax.axhline(rate, color='k', linestyle="--", label="target y-intercept")
-    ax.axvline(intercept, color='k', linestyle="--", label="target x-intercept")
-    ax.set(xlim=((-1, 1)), ylim=((0, rate+5)), xticks=np.array([-1, -0.3, 1]), yticks=((0, rate)), xlabel=r"$\mathbf{x}$", ylabel=r"$a(t)$ (Hz)")
-    ax.legend(loc='upper left', frameon=False)
-    plt.tight_layout()
-    fig.savefig("plots/figures/tuning_curve_state.pdf")
-    fig.savefig("plots/figures/tuning_curve_state.svg")
-
-compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=True)
+compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[])

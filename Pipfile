@@ -13,6 +13,7 @@ nengo = "*"
 nengolib = "*"
 neuron = "*"
 jupyter = "*"
+hyperopt = "*"
 
 [dev-packages]
 
