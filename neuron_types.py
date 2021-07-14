@@ -14,12 +14,10 @@ class LIF(NeuronType):
 
 	probeable = ("spikes", "voltage", "refractory_time")
 
-	def __init__(self, max_x=1.0, tau_rc=0.02, tau_ref=0.002, amplitude=1):
+	def __init__(self, tau_rc=0.05, tau_ref=0.005):
 		super(LIF, self).__init__()
 		self.tau_rc = tau_rc
 		self.tau_ref = tau_ref
-		self.amplitude = amplitude
-		self.min_voltage = 0
 
 	def gain_bias(self, max_rates, intercepts):
 		return np.ones_like(max_rates), np.zeros_like(intercepts)
@@ -32,9 +30,9 @@ class LIF(NeuronType):
 		delta_t = (dt - refractory_time).clip(0, dt)
 		voltage -= (J - voltage) * np.expm1(-delta_t / self.tau_rc)
 		spiked_mask = voltage > 1
-		spiked[:] = spiked_mask * (self.amplitude / dt)
+		spiked[:] = spiked_mask / dt
 		t_spike = dt + self.tau_rc * np.log1p(-(voltage[spiked_mask] - 1) / (J[spiked_mask] - 1))
-		voltage[voltage < self.min_voltage] = self.min_voltage
+		voltage[voltage < 0] = 0
 		voltage[spiked_mask] = 0
 		refractory_time[spiked_mask] = self.tau_ref + t_spike
 
@@ -70,13 +68,15 @@ class Izhikevich(NeuronType):
 	'''
 
 	probeable = ("spikes", "voltage", "recovery")
+	threshold = NumberParam('threshold')  # spike threshold
 	tau_recovery = NumberParam("tau_recovery", low=0, low_open=True)
 	coupling = NumberParam("coupling", low=0)
 	reset_voltage = NumberParam("reset_voltage")
 	reset_recovery = NumberParam("reset_recovery")
 
-	def __init__(self, tau_recovery=0.02, coupling=0.2, reset_voltage=-65.0, reset_recovery=8.0):
+	def __init__(self, threshold=-40, tau_recovery=0.02, coupling=0.2, reset_voltage=-65.0, reset_recovery=8.0):
 		super(Izhikevich, self).__init__()
+		self.threshold = threshold
 		self.tau_recovery = tau_recovery
 		self.coupling = coupling
 		self.reset_voltage = reset_voltage
@@ -89,10 +89,9 @@ class Izhikevich(NeuronType):
 		return np.zeros_like(gain), np.zeros_like(bias)
 
 	def step_math(self, dt, J, spiked, voltage, recovery):
-		J = np.maximum(-30.0, J)
 		dV = (0.04 * voltage ** 2 + 5 * voltage + 140 - recovery + J) * 1000
 		voltage[:] += dV * dt
-		spiked[:] = (voltage >= 30) / dt
+		spiked[:] = (voltage >= self.threshold) / dt
 		voltage[spiked > 0] = self.reset_voltage
 		dU = (self.tau_recovery * (self.coupling * voltage - recovery)) * 1000
 		recovery[:] += dU * dt
@@ -129,7 +128,7 @@ class Wilson(NeuronType):
 	R0 = 0.279  # initial recovery
 	H0 = 0  # initial conductance
 
-	def __init__(self, threshold=-0.20, tauV=0.00097, tauR=0.0056, tauH=0.0990):
+	def __init__(self, threshold=-0.4, tauV=0.00097, tauR=0.0056, tauH=0.0990):
 		super(Wilson, self).__init__()
 		self.threshold = threshold
 		self.tauV = tauV
@@ -148,11 +147,10 @@ class Wilson(NeuronType):
 			dV = -(17.81 + 47.58*V + 33.80*np.square(V))*(V-0.48) - 26*R*(V+0.95) - 13*H*(V+0.95) + J
 			dR = -R + 1.29*V + 0.79 + 3.30*np.square(V+0.38)
 			dH = -H + 11*(V+0.754)*(V+0.69)
-			V[:] += dV*dtOde/self.tauV
+			V[:] += (dV*dtOde/self.tauV).clip(-0.8, 0.4)
 			R[:] += dR*dtOde/self.tauR
 			H[:] += dH*dtOde/self.tauH
-		spiked[:] = (V > self.threshold) & (~AP)
-		spiked /= dt
+		spiked[:] = ((V > self.threshold) & (~AP)) / dt
 		AP[:] = V > self.threshold
 		return spiked, V, R, H, AP
 
@@ -180,11 +178,13 @@ class Pyramidal(NeuronType):
 	'''
 
 	probeable = ('spikes', 'voltage')
+	threshold = NumberParam('threshold')  # spike threshold
 	dtNeuron = NumberParam('dtNeuron')  # time constant
 	DA = NumberParam('DA')  # time constant
 
-	def __init__(self, DA=0, dtNeuron=0.1):
+	def __init__(self, threshold=-40, DA=0, dtNeuron=0.1):
 		super(Pyramidal, self).__init__()
+		self.threshold = threshold
 		self.dtNeuron = dtNeuron
 		self.DA = DA
 
@@ -247,7 +247,7 @@ class SimPyramidal(Operator):
 			self.v_recs.append(neuron.h.Vector())
 			self.v_recs[n].record(self.neurons[n].soma(0.5)._ref_v)
 			self.spk_vecs.append(neuron.h.Vector())
-			self.spk_recs.append(neuron.h.APCount(self.neurons[n].soma(0.5)))
+			self.spk_recs.append(neuron.h.APCount(self.neurons[n].soma(0.5), self.neuron_type.threshold))
 			self.spk_recs[n].record(neuron.h.ref(self.spk_vecs[n]))
 			self.neurons[n].set_v(v0s[n])
 		neuron.h.dt = self.neuron_type.dtNeuron
