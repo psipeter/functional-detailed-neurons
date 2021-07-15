@@ -17,13 +17,8 @@ import neuron
 import matplotlib.pyplot as plt
 import matplotlib.font_manager
 import seaborn as sns
-sns.set(context='paper', style='white', font='CMU Serif')
-
-# fig, ax = plt.subplots()
-# sns.barplot([1], ax=ax)
-# ax.set(title='123 abc')
-# fig.savefig('plots/figures/fonts.pdf')
-# raise
+sns.set(context='paper', style='white', font='CMU Serif',
+    rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
 
 def makeSignal(t, dt=0.001, value=1, seed=0):
@@ -45,7 +40,7 @@ def makeSignal(t, dt=0.001, value=1, seed=0):
 
 def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=1,
     m=Uniform(30, 30), i=Uniform(-0.3, -0.3), eRate=1e-6, dRate=3e-6,
-    fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1),
+    fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1),
     d=None, e=None, w=None, learn=False, stim_func=lambda t: 0):
 
     weights = w if (np.any(w) and not learn) else np.zeros((nPre, nEns))
@@ -127,7 +122,8 @@ def run(neuron_type, nTrain, tTrain, tTest, rate, intercept, eRate,
 
     return times, tarX, aEns, aTarA
 
-def compare(neuron_types, eRates, nTrain=10, tTrain=10, tTest=100, rate=30, intercept=-0.3, nBins=21, tPlot=30, load=False):
+def compare(neuron_types, nTrain=10, tTrain=10, tTest=100, rate=30, intercept=-0.3,
+        eRates=[3e-7, 3e-6, 3e-7, 1e-7], nBins=21, tPlot=10, load=False):
     
     bins = np.linspace(-1, 1, nBins)
     activities = []
@@ -168,32 +164,31 @@ def compare(neuron_types, eRates, nTrain=10, tTrain=10, tTest=100, rate=30, inte
             CI_activities[-1][0][b] = sns.utils.ci(binned_activities[-1][b], which=95)[0]
             CI_activities[-1][1][b] = sns.utils.ci(binned_activities[-1][b], which=95)[1]
 
-    fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=((6, 2)))
+    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
     ax.plot(times, tarX, label="input", color='k')
     ax.axhline(intercept, color='k', linestyle=':', linewidth=0.5)
-    ax.set(xlim=((0, tPlot)), ylim=((-1.2, 1.2)), yticks=((-1, 1)), ylabel=r"$\mathbf{x}$(t)")
+    ax.set(xlabel='times (s)', ylabel=r"$\mathbf{x}(t)$", xlim=((0, tPlot)), xticks=((0, tPlot)), ylim=((-1, 1)), yticks=((-1, intercept, 1)))
+    plt.tight_layout()
+    fig.savefig(f'plots/figures/tuning_curve_input.pdf')
+    fig.savefig(f'plots/figures/tuning_curve_input.svg')
+
+    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
     for i in range(len(neuron_types)):
-        ax2.plot(times, activities[i], label=str(neuron_types[i])[:-2])  # , alpha=0.5
-    ax2.axhline(rate, color='k', linestyle='--', linewidth=0.5)
-    ax2.legend(loc='upper right', frameon=False)
-    ax2.set(xlim=((0, tPlot)), xticks=((0, tPlot)), ylim=((0, rate+5)), yticks=((0, rate)),
-        xlabel='time (s)', ylabel=r"$a(t)$ (Hz)")
-    sns.despine(ax=ax, bottom=True)
-    sns.despine(ax=ax2)
+        ax.plot(times, activities[i], linewidth=0.3)
+    ax.axhline(rate, color='k', linestyle='--', linewidth=0.5)
+    ax.set(xlabel='time (s)', ylabel=r"$a(t)$", xlim=((0, tPlot)), xticks=((0, tPlot)), ylim=((0, rate+5)), yticks=((0, rate)))
     plt.tight_layout()
     fig.savefig(f'plots/figures/tuning_curve_activity.pdf')
     fig.savefig(f'plots/figures/tuning_curve_activity.svg')
 
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((6, 2)))
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 2.5)))
     for i in range(len(neuron_types)):
         ax.fill_between(bins, CI_activities[i][0], CI_activities[i][1], alpha=0.1)
         ax.plot(bins, mean_activities[i], label=str(neuron_types[i])[:-2])
     ax.axhline(rate, color='k', linestyle="--", label="target y-intercept", linewidth=0.5)
     ax.axvline(intercept, color='k', linestyle=":", label="target x-intercept", linewidth=0.5)
-    ax.set(xlim=((-1, 1)), ylim=((0, rate+5)), xticks=np.array([-1, -0.3, 1]), yticks=((0, rate)),
-        xlabel=r"$\mathbf{x}$", ylabel="Neural Activity (Hz)")
+    ax.set(xlim=((-1, 1)), ylim=((0, rate+5)), xticks=((-1, intercept, 1)), yticks=((0, rate)), xlabel=r"$\mathbf{x}$", ylabel="Neural Activity (Hz)")
     ax.legend(loc='upper left', frameon=False)
-    sns.despine()
     plt.tight_layout()
     fig.savefig("plots/figures/tuning_curve_state.pdf")
     fig.savefig("plots/figures/tuning_curve_state.svg")
@@ -234,4 +229,5 @@ def voltageTrace(neuron_type, tTest=1, dt=1e-3,
 # ReLuDistribution()
 # voltageTrace(Pyramidal())
 # compare([Pyramidal()], eRates=[1e-7], load=False)
-compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], eRates=[3e-7, 3e-6, 3e-7, 1e-7], load=True)
+compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=False)
+# compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], eRates=[3e-7, 3e-6, 3e-7, 1e-7], load=True)

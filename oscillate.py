@@ -22,8 +22,8 @@ import seaborn as sns
 sns.set(context='paper', style='white', font='CMU Serif')
 
 
-def makeSignal(t, dt=0.001, value=1, freq=1, seed=0):
-    phase = 2*np.pi*seed / 10
+def makeSignal(t, dt=0.001, value=1, freq=1, seed=0, nTrain=10):
+    phase = 2*np.pi*seed / nTrain
     stim_func = lambda t: [value*np.sin(2*np.pi*freq*t+phase), value*np.cos(2*np.pi*freq*t+phase)]
     A = [[1, 1e-1*2*np.pi*freq], [-1e-1*2*np.pi*freq, 1]]  # tau*A + I
     return stim_func, A
@@ -40,8 +40,8 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
     with nengo.Network() as model:
         inpt = nengo.Node(stim_func)
         tarX = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
-        tarA = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=ReLu(), radius=2, seed=seed)
-        pre = nengo.Ensemble(nPre, 2, max_rates=m, neuron_type=ReLu(), radius=2, seed=seed)
+        tarA = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=ReLu(), seed=seed)
+        pre = nengo.Ensemble(nPre, 2, max_rates=m, neuron_type=ReLu(), seed=seed)
         ens = nengo.Ensemble(nEns, 2, neuron_type=neuron_type, seed=seed)
 
         nengo.Connection(inpt, pre, synapse=None)
@@ -59,7 +59,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
             nengo.Connection(node0, ens.neurons, synapse=None)
         if learn1:  # learn the recurrent dynamics using a feedforward connection
             weights2 = w1 if np.any(w1) else np.zeros((nEns, nEns))
-            tarA2 = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=ReLu(), radius=2, seed=seed)
+            tarA2 = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=ReLu(), seed=seed)
             ens2 = nengo.Ensemble(nEns, 2, neuron_type=neuron_type, seed=seed)
             nengo.Connection(tarX, tarA2, synapse=fTarget)
             conn2 = nengo.Connection(ens, ens2, synapse=f1, solver=NoSolver(weights2, weights=True))
@@ -108,7 +108,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
     )
 
 def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
-    freq=1, muFreq=1.0, sigmaFreq=0.1, tDrive=0.2, tTrans=2, base=False, evals=200,
+    freq=1, muFreq=1.0, sigmaFreq=0.1, tDrive=0.2, tTrans=2, base=False, evals=300,
     nEns=100, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), load=[]):
 
     print(f'Neuron type: {neuron_type}')
@@ -119,7 +119,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         print('train d0, e0, w0 from pre to ens')
         d0, e0, w0 = None, None, None
         for n in range(nTrain):
-            stim_func, A = makeSignal(tTrain, value=1.2, freq=freq, dt=dt, seed=n)
+            stim_func, A = makeSignal(tTrain, value=1, freq=freq, dt=dt, seed=n, nTrain=nTrain)
             data = go(neuron_type, learn0=True, eRate=eRate,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -138,7 +138,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         targets = np.zeros((nTrain, int((tTrain-tTrans)/dt), 2))
         spikes = np.zeros((nTrain, int((tTrain-tTrans)/dt), nEns))
         for n in range(nTrain):
-            stim_func, A = makeSignal(tTrain, value=1.2, freq=freq, dt=dt, seed=n)
+            stim_func, A = makeSignal(tTrain, value=1, freq=freq, dt=dt, seed=n, nTrain=nTrain)
             data = go(neuron_type,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -160,7 +160,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         print('train e1, w1 from ens to ens2')
         e1, w1 = None, None
         for n in range(nTrain):
-            stim_func, A = makeSignal(tTrain, value=1.2, freq=freq, dt=dt, seed=n)
+            stim_func, A = makeSignal(tTrain, value=1, freq=freq, dt=dt, seed=n, nTrain=nTrain)
             data = go(neuron_type, learn1=True, eRate=eRate,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -176,10 +176,10 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 "oscillate", neuron_type, "ens2", n, nTrain)
 
     dfs = []
-    columns = ('neuron_type', 'n', 'error', 'dim')
+    columns = ('neuron_type', 'n', 'error', 'dimension')
     print('estimating error')
     for n in range(nTest):
-        stim_func, A = makeSignal(tTrain, value=1.2, freq=freq, dt=dt, seed=n+0.5)
+        stim_func, A = makeSignal(tTrain, value=1, freq=freq, dt=dt, seed=n, nTrain=nTest)
         data = go(neuron_type,
             nEns=nEns, t=tTest, dt=dt,
             d0=d0, e0=e0, w0=w0,
@@ -191,51 +191,39 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         tarX = fTarget.filt(data['tarX'], dt=dt)
         aEns = f1.filt(data['ens'], dt=dt)
         xhat = np.dot(aEns, d1)
-
-        freq0, phase0, mag0, base0 = fitSinusoid(times, xhat[:,0], int(tTrans/dt), muFreq=muFreq, sigmaFreq=sigmaFreq, evals=evals, base=base)
-        freq1, phase1, mag1, base1 = fitSinusoid(times, xhat[:,1], int(tTrans/dt), muFreq=muFreq, sigmaFreq=sigmaFreq, evals=evals, base=base)
-        tarFit0 = base0+mag0*np.sin(times*2*np.pi*freq0+phase0)
-        tarFit1 = base1+mag1*np.sin(times*2*np.pi*freq1+phase1)
-        rmseError0 = rmse(xhat[int(tTrans/dt):,0], tarFit0[int(tTrans/dt):])
-        rmseError1 = rmse(xhat[int(tTrans/dt):,1], tarFit1[int(tTrans/dt):])
-        freqError0 = np.abs(freq-freq0)
-        freqError1 = np.abs(freq-freq1)
-        # error0 = (1+freqError0) * rmseError0
-        # error1 = (1+freqError1) * rmseError1
-        error0 = rmseError0
-        error1 = rmseError1
+        error0 = rmse(xhat[:,0], tarX[:,0])
+        error1 = rmse(xhat[:,1], tarX[:,1])
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error0, '0']], columns=columns))
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error1, '1']], columns=columns))
 
-    return times, xhat, tarFit0, tarFit1, dfs
+    return times, xhat, tarX, dfs
 
-def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=3, tTest=10, tTrans=2, load=[]):
+def compare(neuron_types, eRates=[3e-7, 1e-5, 1e-7, 3e-8], nTrain=10, tTrain=10, nTest=10, tTest=10, tTrans=0, load=[]):
 
     dfsAll = []
-    columns = ('neuron_type', 'n', 'error1', 'error2')
-    fig, axes = plt.subplots(nrows=len(neuron_types), ncols=1, figsize=((6, len(neuron_types))), sharex=True)
+    fig, axes = plt.subplots(nrows=len(neuron_types)+1, ncols=1, figsize=((6, len(neuron_types)+1)), sharex=True)
     for i, neuron_type in enumerate(neuron_types):
-        times, xhat, tarFit0, tarFit1, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest,
+        times, xhat, tarX, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest,
             eRate=eRates[i], tTrans=tTrans, load=load)
         dfsAll.extend(dfs)
-        axes[i].plot(times, tarFit0, label=r'$\mathbf{x}_0(t)$', color='k', linewidth=0.5)
-        axes[i].plot(times, tarFit1, label=r'$\mathbf{x}_1(t)$', color='k', linestyle='--', linewidth=0.5)
-        axes[i].plot(times, xhat[:,0], label=r'$\mathbf{\hat{x}}_0(t)$')
-        axes[i].plot(times, xhat[:,1], label=r'$\mathbf{\hat{x}}_1(t)$')
-        axes[i].set(ylabel=f"{str(neuron_type)[:-2]}", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-        sns.despine(ax=axes[i], bottom=True)
-    axes[0].legend(loc='upper right', frameon=False)
-    df = pd.concat([df for df in dfsAll], ignore_index=True)
+        axes[i+1].plot(times, xhat)
+        axes[i+1].set(ylabel=f"{str(neuron_type)[:-2]}", xlim=((tTrans, tTest)), xticks=(()), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
+        sns.despine(ax=axes[i+1], bottom=True)
+    axes[0].plot(times, tarX, label=r'$\mathbf{x}_1(t)$', color='k')
+    axes[0].set(ylabel=r'$\mathbf{\hat{x}}(t)$', xlim=((tTrans, tTest)), xticks=(()), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
+    sns.despine(ax=axes[0], bottom=True)
     plt.tight_layout()
     fig.savefig('plots/figures/oscillate_states.pdf')
     fig.savefig('plots/figures/oscillate_states.svg')
 
+    df = pd.concat([df for df in dfsAll], ignore_index=True)
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((6, 1)), sharex=True)
-    sns.barplot(data=df, x='neuron_type', y='error', hue='dim', ax=ax)
-    ax.set(xlabel='', ylabel='Error')
+    sns.barplot(data=df, x='neuron_type', y='error', hue='dimension', ax=ax)
+    ax.set(xlabel='', ylabel='Error', ylim=((0, 0.5)), yticks=((0, 0.5)))
+    ax.legend(frameon=False, loc='upper right')
     sns.despine(ax=ax)
     fig.savefig('plots/figures/oscillate_barplot.pdf')
     fig.savefig('plots/figures/oscillate_barplot.svg')
 
-compare([LIF(), Izhikevich()], load=[])
-# compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[])
+# compare([Pyramidal()], eRates=[3e-8], load=[])
+compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[])
