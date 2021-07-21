@@ -22,34 +22,37 @@ import seaborn as sns
 sns.set(context='paper', style='white', font='CMU Serif')
 
 
-def makeSignal(t, dt=0.001, value=1, seed=0):
-    stim = nengo.processes.WhiteSignal(period=t, high=1.0, rms=0.5, seed=seed)
-    with nengo.Network() as model:
-        inpt = nengo.Node(stim)
-        probe = nengo.Probe(inpt, synapse=None)
-    with nengo.Simulator(model, progress_bar=False, dt=dt) as sim:
-        sim.run(t+dt, progress_bar=False)
-    u = sim.data[probe]
-    if np.abs(np.max(u)) > np.abs(np.min(u)):
-        stim = u * value / np.max(u)
-    else:
-        stim = u / np.min(u)
-    u1 = np.sqrt(np.square(stim))
-    u2 = np.sqrt(np.square(stim))
-    # the multiplied signal should alternate (across seeds)
-    # between having an extrema at -1 and 1 (to cover all phase space),
-    # so multiply one or both of the inputs by -1 to achieve this
-    if seed%4==0:
-        pass
-    if seed%4==1:
-        u1*=-1
-    if seed%4==2:
-        u2*=-1
-    if seed%4==3:
-        u1*=-1
-        u2*=-1
-    stim_func1 = lambda t: u1[int(t/dt)]
-    stim_func2 = lambda t: u2[int(t/dt)]
+def makeSignal(t, dt=0.001, value=1, seed=0, thr=0.9):
+    done = False
+    rng = np.random.RandomState(seed=seed)
+    while not done:
+        stim1 = nengo.processes.WhiteSignal(period=t, high=1.0, rms=0.5, seed=rng.randint(1e6))
+        stim2 = nengo.processes.WhiteSignal(period=t, high=1.0, rms=0.5, seed=rng.randint(1e6))
+        with nengo.Network() as model:
+            inpt1 = nengo.Node(stim1)
+            inpt2 = nengo.Node(stim2)
+            probe1 = nengo.Probe(inpt1, synapse=None)
+            probe2 = nengo.Probe(inpt2, synapse=None)
+        with nengo.Simulator(model, progress_bar=False, dt=dt) as sim:
+            sim.run(t+dt, progress_bar=False)
+        u1 = sim.data[probe1]
+        u2 = sim.data[probe2]
+        if np.abs(np.max(u1)) > np.abs(np.min(u1)):
+            dim1 = u1 * value / np.max(u1)
+        else:
+            dim1 = u1 * value / np.min(u1)
+        if np.abs(np.max(u2)) > np.abs(np.min(u2)):
+            dim2 = u2 * value / np.max(u2)
+        else:
+            dim2 = u2 * value / np.min(u2)
+
+        multiplied = dim1 * dim2
+        if seed%2==0 and np.min(multiplied) < -value*thr:
+            done = True
+        if seed%2==1 and np.max(multiplied) > value*thr:
+            done = True
+    stim_func1 = lambda t: dim1[int(t/dt)]
+    stim_func2 = lambda t: dim2[int(t/dt)]
     return stim_func1, stim_func2
 
 def multiply(x):
@@ -82,7 +85,6 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         nengo.Connection(inpt1, tarA1[0], synapse=fTarget)
         nengo.Connection(inpt2, tarA1[1], synapse=fTarget)
         nengo.Connection(tarX1, tarA2, synapse=fTarget, function=multiply)
-        # nengo.Connection(ens1, tarA2, synapse=f1, function=multiply, solver=NoSolver(d1, weights=False))
         conn0 = nengo.Connection(pre, ens1, synapse=fTarget, solver=NoSolver(weights0, weights=True))
         conn1 = nengo.Connection(ens1, ens2, synapse=f1, function=multiply, solver=NoSolver(weights1, weights=True))
 
@@ -96,7 +98,6 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
             nengo.Connection(node0, ens1.neurons, synapse=None)
         if learn1:
             node1 = LearningNode(ens1, ens2, 1, conn=conn1, d=d1, e=e1, w=w1, eRate=eRate, dRate=0)
-            # node1 = LearningNode(ens1, ens2, 1, conn=conn1, d=d1, e=e1, w=w1, eRate=eRate, dRate=dRate)
             nengo.Connection(ens1.neurons, node1[:nEns], synapse=f1)
             nengo.Connection(ens2.neurons, node1[nEns: 2*nEns], synapse=fSmooth)
             nengo.Connection(tarA2.neurons, node1[2*nEns: 3*nEns], synapse=fSmooth)
@@ -121,7 +122,6 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         d0, e0, w0 = node0.d, node0.e, node0.w
     if learn1:
         e1, w1 = node1.e, node1.w
-        # d1, e1, w1 = node1.d, node1.e, node1.w
 
     return dict(
         times=sim.trange(),
@@ -168,17 +168,16 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         d1, tauRise1, tauFall1 = data['d1'], data['tauRise1'], data['tauFall1']
         f1 = DoubleExp(tauRise1, tauFall1)
     else:
-        print('train d1 and f1 for ens1')
+        print('train d1 and f1 for ens1 to compute multiplication')
         targets = np.zeros((nTrain, int(tTrain/dt), 1))
         spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
-            stim_func1, stim_func2 = makeSignal(tTrain, value=1.2, dt=dt, seed=n)
+            stim_func1, stim_func2 = makeSignal(tTrain, value=1.3, dt=dt, seed=n)
             data = go(neuron_type,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
                 fTarget=fTarget, fSmooth=fSmooth,
                 stim_func1=stim_func1, stim_func2=stim_func2)
-            # targets[n] = fTarget.filt(data['tarX1'], dt=dt)
             targets[n] = data['tarX2']  # tarX1[0] * tarX1[1], filtered by fTarget
             spikes[n] = data['ens1']
 
@@ -195,7 +194,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         print('train e1, w1 from ens1 to ens2')
         e1, w1 = None, None
         for n in range(nTrain):
-            stim_func1, stim_func2 = makeSignal(tTrain, value=1.2, dt=dt, seed=n)
+            stim_func1, stim_func2 = makeSignal(tTrain, value=1.3, dt=dt, seed=n)
             data = go(neuron_type, learn1=True, eRate=eRate,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -214,11 +213,11 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         d2, tauRise2, tauFall2 = data['d2'], data['tauRise2'], data['tauFall2']
         f2 = DoubleExp(tauRise2, tauFall2)
     else:
-        print('train d2 and f2 for ens2')
+        print('train d2 and f2 for ens2 for readout')
         targets = np.zeros((nTrain, int(tTrain/dt), 1))
         spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
-            stim_func1, stim_func2 = makeSignal(tTrain, value=1.2, dt=dt, seed=n)
+            stim_func1, stim_func2 = makeSignal(tTrain, value=1.3, dt=dt, seed=n)
             data = go(neuron_type,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -262,55 +261,39 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
 
     return times, tarX1, tarX2, xhat1, xhat2, dfs
 
-def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=30, tTrain=5, nTest=10, tTest=5, load=[]):
+def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[]):
+
 
     dfsAll = []
-    columns = ('neuron_type', 'n', 'error1', 'error2')
-    fig1, axes1 = plt.subplots(nrows=len(neuron_types)+1, ncols=1, figsize=((6, len(neuron_types))), sharex=True)
-    fig2, axes2 = plt.subplots(nrows=len(neuron_types)+1, ncols=1, figsize=((6, len(neuron_types))), sharex=True)
+    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
+    fig2, ax2 = plt.subplots(figsize=((5.25, 1.5)))
     for i, neuron_type in enumerate(neuron_types):
         times, tarX1, tarX2, xhat1, xhat2, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
         dfsAll.extend(dfs)
-        axes1[i+1].plot(times, xhat1)
-        axes2[i+1].plot(times, xhat2)
-        axes1[i+1].set(ylabel=f"{str(neuron_type)[:-2]}", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-        axes2[i+1].set(ylabel=f"{str(neuron_type)[:-2]}", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-        sns.despine(ax=axes1[i+1], bottom=True)
-        sns.despine(ax=axes2[i+1], bottom=True)
+        ax.plot(times, xhat1, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
+        ax2.plot(times, xhat2, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
     df = pd.concat([df for df in dfsAll], ignore_index=True)
 
-    axes1[0].plot(times, tarX1, label='target', color='k')
-    axes2[0].plot(times, tarX2, label='target', color='k')
-    axes1[0].set(ylabel=r"$\mathbf{x}_1(t)$", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-    axes2[0].set(ylabel=r"$\mathbf{x}_2(t)$", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-    axes1[-1].set(xlabel='time (s)', xticks=((0, tTest)))
-    axes2[-1].set(xlabel='time (s)', xticks=((0, tTest)))
-    sns.despine(ax=axes1[0], bottom=True)
-    sns.despine(ax=axes2[0], bottom=True)
-    sns.despine(ax=axes1[-1], bottom=False)
-    sns.despine(ax=axes2[-1], bottom=False)
+    ax.plot(times, tarX1, label='target', color='k', linewidth=0.5)
+    ax.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
+    ax.legend(loc='upper right', frameon=False)
     plt.tight_layout()
-    fig1.savefig('plots/figures/multiply_ens1.pdf')
-    fig1.savefig('plots/figures/multiply_ens1.svg')
+    fig.savefig('plots/figures/multiply_ens1.pdf')
+    fig.savefig('plots/figures/multiply_ens1.svg')
+
+    ax2.plot(times, tarX2, label='target', color='k', linewidth=0.5)
+    ax2.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
+    ax2.legend(loc='upper right', frameon=False)
+    plt.tight_layout()
     fig2.savefig('plots/figures/multiply_ens2.pdf')
     fig2.savefig('plots/figures/multiply_ens2.svg')
 
-    # fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, figsize=((6, 3)), sharex=True)
-    # sns.barplot(data=df, x='neuron_type', y='error1', ax=ax)
-    # sns.barplot(data=df, x='neuron_type', y='error2', ax=ax2)
-    # ax.set(xlabel='', ylabel='Error')
-    # ax2.set(xlabel='', ylabel='Error')
-    # sns.despine(ax=ax)
-    # sns.despine(ax=ax2)
-    # fig.savefig('plots/figures/multiply_barplot.pdf')
-    # fig.savefig('plots/figures/multiply_barplot.svg')
-
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((6, 1)), sharex=True)
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
     sns.barplot(data=df, x='neuron_type', y='error2', ax=ax)
-    ax.set(xlabel='', ylabel='Error')
-    sns.despine(ax=ax)
+    ax.set(xlabel='', ylim=((0, 0.1)), yticks=((0, 0.1)), ylabel='Error')
+    plt.tight_layout()
     fig.savefig('plots/figures/multiply_barplot.pdf')
     fig.savefig('plots/figures/multiply_barplot.svg')
 
-# compare([LIF()], load=[])
-compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[])
+# compare([Pyramidal()], load=[])
+compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[0,1,2,3])

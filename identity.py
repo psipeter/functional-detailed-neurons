@@ -19,8 +19,8 @@ import neuron
 import matplotlib.pyplot as plt
 
 import seaborn as sns
-sns.set(context='paper', style='white', font='CMU Serif')
-
+sns.set(context='paper', style='white', font='CMU Serif',
+    rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
 def makeSignal(t, dt=0.001, value=1, seed=0):
     stim = nengo.processes.WhiteSignal(period=t, high=1.0, rms=0.5, seed=seed)
@@ -121,7 +121,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         w1=w1,
     )
 
-def run(neuron_type, eRate, nTrain, nTest, tTrain, tTest,
+def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
     nEns=100, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), load=[]):
 
     print(f'Neuron type: {neuron_type}')
@@ -146,7 +146,7 @@ def run(neuron_type, eRate, nTrain, nTest, tTrain, tTest,
         d1, tauRise1, tauFall1 = data['d1'], data['tauRise1'], data['tauFall1']
         f1 = DoubleExp(tauRise1, tauFall1)
     else:
-        print('train d1 and f1 for ens1')
+        print('train d1 and f1 for ens1 to compute identity')
         targets = np.zeros((nTrain, int(tTrain/dt), 1))
         spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
@@ -192,7 +192,7 @@ def run(neuron_type, eRate, nTrain, nTest, tTrain, tTest,
         d2, tauRise2, tauFall2 = data['d2'], data['tauRise2'], data['tauFall2']
         f2 = DoubleExp(tauRise2, tauFall2)
     else:
-        print('train d2 and f2 for ens2')
+        print('train d2 and f2 for ens2 for readout')
         targets = np.zeros((nTrain, int(tTrain/dt), 1))
         spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
@@ -240,50 +240,34 @@ def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
 
     dfsAll = []
     columns = ('neuron_type', 'n', 'error1', 'error2')
-    fig1, axes1 = plt.subplots(nrows=len(neuron_types)+1, ncols=1, figsize=((6, len(neuron_types))), sharex=True)
-    fig2, axes2 = plt.subplots(nrows=len(neuron_types)+1, ncols=1, figsize=((6, len(neuron_types))), sharex=True)
+    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
+    fig2, ax2 = plt.subplots(figsize=((5.25, 1.5)))
     for i, neuron_type in enumerate(neuron_types):
-        times, tarX1, tarX2, xhat1, xhat2, dfs = run(neuron_type, eRates[i], nTrain, nTest, tTrain, tTest, load=load)
+        times, tarX1, tarX2, xhat1, xhat2, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
         dfsAll.extend(dfs)
-        axes1[i+1].plot(times, xhat1)
-        axes2[i+1].plot(times, xhat2)
-        axes1[i+1].set(ylabel=f"{str(neuron_type)[:-2]}", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-        axes2[i+1].set(ylabel=f"{str(neuron_type)[:-2]}", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-        sns.despine(ax=axes1[i+1], bottom=True)
-        sns.despine(ax=axes2[i+1], bottom=True)
+        ax.plot(times, xhat1, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
+        ax2.plot(times, xhat2, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
     df = pd.concat([df for df in dfsAll], ignore_index=True)
 
-    axes1[0].plot(times, tarX1, label='target', color='k')
-    axes2[0].plot(times, tarX2, label='target', color='k')
-    axes1[0].set(ylabel=r"$\mathbf{x}_1(t)$", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-    axes2[0].set(ylabel=r"$\mathbf{x}_2(t)$", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-    axes1[-1].set(xlabel='time (s)', xticks=((0, tTest)))
-    axes2[-1].set(xlabel='time (s)', xticks=((0, tTest)))
-    sns.despine(ax=axes1[0], bottom=True)
-    sns.despine(ax=axes2[0], bottom=True)
-    sns.despine(ax=axes1[-1], bottom=False)
-    sns.despine(ax=axes2[-1], bottom=False)
+    ax.plot(times, tarX1, label='target', color='k', linewidth=0.5)
+    ax.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
+    ax.legend(loc='upper right', frameon=False)
     plt.tight_layout()
-    fig1.savefig('plots/figures/identity_ens1.pdf')
-    fig1.savefig('plots/figures/identity_ens1.svg')
+    fig.savefig('plots/figures/identity_ens1.pdf')
+    fig.savefig('plots/figures/identity_ens1.svg')
+
+    ax2.plot(times, tarX2, label='target', color='k', linewidth=0.5)
+    ax2.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
+    ax2.legend(loc='upper right', frameon=False)
+    plt.tight_layout()
     fig2.savefig('plots/figures/identity_ens2.pdf')
     fig2.savefig('plots/figures/identity_ens2.svg')
 
-    # fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, figsize=((6, 3)), sharex=True)
-    # sns.barplot(data=df, x='neuron_type', y='error1', ax=ax)
-    # sns.barplot(data=df, x='neuron_type', y='error2', ax=ax2)
-    # ax.set(xlabel='', ylabel='Error')
-    # ax2.set(xlabel='', ylabel='Error')
-    # sns.despine(ax=ax)
-    # sns.despine(ax=ax2)
-    # fig.savefig('plots/figures/identity_barplot.pdf')
-    # fig.savefig('plots/figures/identity_barplot.svg')
-
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((6, 1)))
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
     sns.barplot(data=df, x='neuron_type', y='error2', ax=ax)
-    ax.set(xlabel='', ylabel='Error')
-    sns.despine(ax=ax)
+    ax.set(xlabel='', ylim=((0, 0.04)), yticks=((0, 0.04)), ylabel='Error')
+    plt.tight_layout()
     fig.savefig('plots/figures/identity_barplot.pdf')
     fig.savefig('plots/figures/identity_barplot.svg')
 
-compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[])
+compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[0,1,2,3])

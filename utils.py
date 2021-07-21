@@ -122,35 +122,33 @@ def trainD(spikes, targets, nTrain, f, dt=0.001, reg=1e-3):
     d, _ = LstsqL2(reg=reg)(A, Y)
     return d
 
-def fitSinusoid(times, xhat, tTrans, muFreq=1, sigmaFreq=0.1, base=False, name="sinusoid", seed=0, evals=100):
-    np.savez_compressed('data/%s_times.npz'%name, times=times)
-    np.savez_compressed('data/%s_vals.npz'%name, xhat=xhat)
+def fitSinusoid(xhat, neuron_type, muFreq=2*np.pi, sigmaFreq=1, base=True, dt=1e-3, seed=0, evals=2000):
+    np.savez_compressed(f'data/oscillate_{neuron_type}_xhat.npz', xhat=xhat)
     hyperparams = {}
-    hyperparams['name'] = name
-    hyperparams['tTrans'] = tTrans
+    hyperparams['neuron_type'] = neuron_type
+    hyperparams['dt'] = dt
     hyperparams['freq'] = hp.normal('freq', muFreq, sigmaFreq)
-    hyperparams['phase'] = hp.uniform('phase', 0, 2*np.pi)
-#     hyperparams['mag'] = 0.75
-#     hyperparams['base'] = 0
+    hyperparams['phase'] = hp.uniform('phase', 0, 1)
 #     hyperparams['phase'] = hp.choice('phase', [0, 0.2, 0.4, 0.6, 0.8])
 #     hyperparams['freq'] = hp.uniform('freq', fMin*freq, fMax*freq)
-    hyperparams['mag'] = hp.choice('mag', [0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2])
-    hyperparams['base'] = hp.choice('base', [-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3]) if base else 0
+    hyperparams['mag'] = hp.choice('mag', np.arange(0.7, 1.2, 0.05))
+    hyperparams['base'] = hp.choice('base', np.arange(-0.2, 0.2, 0.05)) if base else 0
 #     hyperparams['mag'] = hp.uniform('mag', 0.7, 1.0)
 #     hyperparams['base'] = hp.uniform('base', -0.2, 0.2)
-#     hyperparams['mag'] = 0.8
 
     def objective(hyperparams):
         freq = hyperparams['freq']
-        tTrans = hyperparams['tTrans']
         phase = hyperparams['phase']
         mag = hyperparams['mag']
         base = hyperparams['base']
-        times = np.load('data/%s_times.npz'%hyperparams['name'])['times']
-        sin = base + mag*np.sin(times*2*np.pi*freq+phase)
-        xhat = np.load('data/%s_vals.npz'%hyperparams['name'])['xhat']
-        loss = rmse(sin[tTrans:], xhat[tTrans:])
-        return {'loss': loss, 'freq': freq, 'phase': phase, 'mag': mag, 'base': base, 'status': STATUS_OK}
+        neuron_type = hyperparams['neuron_type']
+        dt = hyperparams['dt']
+        xhat = np.load(f'data/oscillate_{neuron_type}_xhat.npz', allow_pickle=True)['xhat']
+        times = np.arange(0, len(xhat))*dt
+        sin = base + mag*np.sin(freq*(times + phase))
+        loss = rmse(sin, xhat)
+        loss2 = np.abs(freq - 2*np.pi) / (2*np.pi)
+        return {'loss': loss, 'loss2': loss2, 'freq': freq, 'phase': phase, 'mag': mag, 'base': base, 'status': STATUS_OK}
     
     trials = Trials()
     fmin(objective,
@@ -162,9 +160,11 @@ def fitSinusoid(times, xhat, tTrans, muFreq=1, sigmaFreq=0.1, base=False, name="
         trials=trials)
     idx = np.argmin(trials.losses())
     best = trials.trials[idx]
+    loss = best['result']['loss']
+    loss2 = best['result']['loss2']
     freq = best['result']['freq']
     phase = best['result']['phase']
     mag = best['result']['mag']
     base = best['result']['base']
         
-    return freq, phase, mag, base
+    return loss, loss2, freq, phase, mag, base

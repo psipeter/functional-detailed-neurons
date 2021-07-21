@@ -19,7 +19,9 @@ import neuron
 import matplotlib.pyplot as plt
 
 import seaborn as sns
-sns.set(context='paper', style='white', font='CMU Serif')
+sns.set(context='paper', style='white', font='CMU Serif',
+    rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
+
 
 
 def makeSignal(t, dt=0.001, value=1, seed=0):
@@ -155,7 +157,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, rmse(xhatNoF, tarX), "default"]], columns=columns))
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, rmse(xhat, tarX), "trained"]], columns=columns))
 
-    return times, tarX, xhatNoF, xhat, dfs
+    return times, tarX, xhatNoF, xhat, tauRiseOut, tauFallOut, dfs
 
     # print('estimating spike adaptation')
     # dfsISI = []
@@ -182,34 +184,49 @@ def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
     # dfsAllISI = []
     columns = ('neuron_type', 'n', 'error', 'filter')
     # columnsISI = ('neuron_type', 'n', 'ISI variance')
-    fig, axes = plt.subplots(nrows=len(neuron_types)+1, ncols=1, figsize=((6, len(neuron_types))), sharex=True)
+    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
+    fig2, ax2 = plt.subplots(figsize=((5.25, 1.5)))
+    fig3, ax3 = plt.subplots(figsize=((5.25, 1.5)))
+    tFilter = 0.3  # seconds
     for i, neuron_type in enumerate(neuron_types):
         # times, tarX, xhatNoF, xhat, dfs, dfsISI = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
-        times, tarX, xhatNoF, xhat, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
+        times, tarX, xhatNoF, xhat, tauRise, tauFall, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
+        fTrained = DoubleExp(tauRise, tauFall)
         dfsAll.extend(dfs)
         # dfsAllISI.extend(dfsISI)
-        axes[i+1].plot(times, xhatNoF, label="default")
-        axes[i+1].plot(times, xhat, label="trained")
-        axes[i+1].set(ylabel=f"{str(neuron_type)[:-2]}", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-        sns.despine(ax=axes[i+1], bottom=True)
+        ax.plot(times, xhatNoF, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
+        ax2.plot(times, xhat, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
+        ax3.plot(fTrained.ntrange(int(tFilter*1000)), fTrained.impulse(int(tFilter*1000)),
+            label=f"{str(neuron_type)[:-2]}: " + r"$\tau_{\mathrm{rise}}=$"+f"{tauRise:.2f}s, " + r"$\tau_{\mathrm{fall}}=$"+f"{tauFall:.2f}s")
     df = pd.concat([df for df in dfsAll], ignore_index=True)
     # dfISI = pd.concat([df for df in dfsAllISI], ignore_index=True)
 
-    axes[0].plot(times, tarX, label='target', color='k')
-    axes[0].set(ylabel=r"$\mathbf{x}(t)$", xlim=((0, tTest)), ylim=((-1.2, 1.2)), yticks=((-1, 1)))
-    axes[1].legend(loc='upper right', frameon=False)
-    axes[-1].set(xlabel='time (s)', xticks=((0, tTest)))
-    sns.despine(ax=axes[0], bottom=True)
-    sns.despine(ax=axes[-1], bottom=True)
+    ax.plot(times, tarX, label='target', color='k', linewidth=0.5)
+    ax.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\mathbf{\hat{x}}(t)$, Default Filter")
+    ax.legend(loc='upper right', frameon=False)
     plt.tight_layout()
-    fig.savefig('plots/figures/adaptation_state.pdf')
-    fig.savefig('plots/figures/adaptation_state.svg')
+    fig.savefig('plots/figures/adaptation_state_default.pdf')
+    fig.savefig('plots/figures/adaptation_state_default.svg')
 
-    fig, ax = plt.subplots(figsize=((6, 1)))
+    ax2.plot(times, tarX, label='target', color='k', linewidth=0.5)
+    ax2.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\mathbf{\hat{x}}(t)$, Trained Filter")
+    ax2.legend(loc='upper right', frameon=False)
+    fig2.savefig('plots/figures/adaptation_state_trained.pdf')
+    fig2.savefig('plots/figures/adaptation_state_trained.svg')
+
+    fTarget = DoubleExp(1e-3, 1e-1)
+    ax3.plot(fTarget.ntrange(int(tFilter*1000)), fTarget.impulse(int(tFilter*1000)), color='k',
+        label=r"Default: $\tau_{\mathrm{rise}}=0.001s, \tau_{\mathrm{fall}}=0.1s$")
+    ax3.legend(loc='upper right', frameon=False)
+    ax3.set(xlim=((0, tFilter)), xticks=((0, tFilter)), ylabel=r'Filter $H(s)$', yticks=((0, 10)), ylim=((0, 10)), xlabel='time (s)')
+    fig3.savefig('plots/figures/adaptation_filter.pdf')
+    fig3.savefig('plots/figures/adaptation_filter.svg')
+
+    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
     sns.barplot(data=df, x='neuron_type', y='error', hue='filter', ax=ax)
     ax.set(xlabel='', ylabel='Error', ylim=((0, 0.2)), yticks=((0, 0.2)))
+    plt.tight_layout()
     # ax.legend(loc='upper right', frameon=False)
-    sns.despine()
     fig.savefig('plots/figures/adaptation_barplot.pdf')
     fig.savefig('plots/figures/adaptation_barplot.svg')
 

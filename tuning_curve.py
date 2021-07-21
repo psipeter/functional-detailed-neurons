@@ -187,7 +187,8 @@ def compare(neuron_types, nTrain=10, tTrain=10, tTest=100, rate=30, intercept=-0
         ax.plot(bins, mean_activities[i], label=str(neuron_types[i])[:-2])
     ax.axhline(rate, color='k', linestyle="--", label="target y-intercept", linewidth=0.5)
     ax.axvline(intercept, color='k', linestyle=":", label="target x-intercept", linewidth=0.5)
-    ax.set(xlim=((-1, 1)), ylim=((0, rate+5)), xticks=((-1, intercept, 1)), yticks=((0, rate)), xlabel=r"$\mathbf{x}$", ylabel="Neural Activity (Hz)")
+    ax.set(xlim=((-1, 1)), ylim=((0, rate+5)), xticks=((-1, intercept, 1)), yticks=((0, rate)),
+        xlabel=r"Input State $\mathbf{x}$", ylabel=r"Neural Activity $a$ (Hz)")
     ax.legend(loc='upper left', frameon=False)
     plt.tight_layout()
     fig.savefig("plots/figures/tuning_curve_state.pdf")
@@ -201,12 +202,11 @@ def ReLuDistribution():
         ens = nengo.Ensemble(100, 1, max_rates=m, intercepts=i, neuron_type=ReLu())
     with nengo.Simulator(model, progress_bar=False) as sim:
         eval_points, activities = tuning_curves(ens, sim)
-    fig, ax = plt.subplots(figsize=((6, 2)))
+    fig, ax = plt.subplots(figsize=((5.25, 2)))
     ax.plot(eval_points, activities)
     plt.tight_layout()
-    ax.set(ylabel="Firing rate $a$ (Hz)", xlabel="Input scalar, x",
+    ax.set(ylabel=r"Neural Activity $a$ (Hz)", xlabel=r"Input scalar, $\mathbf{x}$",
         xlim=((-1, 1)), xticks=((-1, 1)), ylim=((0, 40)), yticks=((0, 40)))
-    sns.despine(ax=ax)
     fig.savefig('plots/figures/ReLuDistribution.pdf')
     fig.savefig('plots/figures/ReLuDistribution.svg')
 
@@ -226,8 +226,6 @@ def voltageTrace(neuron_type, tTest=1, dt=1e-3,
     ax.set(xlabel='time (s)')
     fig.savefig(f'plots/tuning_curve/{neuron_type}/voltage.pdf')
 
-# ReLuDistribution()
+ReLuDistribution()
 # voltageTrace(Pyramidal())
-# compare([Pyramidal()], eRates=[1e-7], load=False)
-compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=False)
-# compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], eRates=[3e-7, 3e-6, 3e-7, 1e-7], load=True)
+# compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=True)
