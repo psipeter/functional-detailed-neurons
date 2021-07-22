@@ -143,6 +143,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 "identity", neuron_type, "ens1", n, nTrain)
 
     if 1 in load:
+        data = np.load(f"data/identity_{neuron_type}.npz")
         d1, tauRise1, tauFall1 = data['d1'], data['tauRise1'], data['tauFall1']
         f1 = DoubleExp(tauRise1, tauFall1)
     else:

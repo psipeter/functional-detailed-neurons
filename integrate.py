@@ -25,7 +25,7 @@ sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
 
-def makeSignal(t, value=1, thr=1.4, dt=1e-3, seed=0):
+def makeSignal(t, maxX=1, minU=0.8, maxU=1.2, dt=1e-3, seed=0):
     rng = np.random.RandomState(seed=seed)
     done = False
     while not done:
@@ -41,28 +41,28 @@ def makeSignal(t, value=1, thr=1.4, dt=1e-3, seed=0):
         u = sim.data[pInpt]
         x = sim.data[pTarX]
         if np.abs(np.max(x)) > np.abs(np.min(x)):
-            inputs = u * value / np.max(x)
-            targets = x * value / np.max(x)
+            inputs = u * maxX / np.max(x)
+            targets = x * maxX / np.max(x)
         else:
-            inputs = u * value / np.min(x)
-            targets = x * value / np.min(x)
-        if seed%2==0 and np.max(np.abs(inputs))<thr:
+            inputs = u * maxX / np.min(x)
+            targets = x * maxX / np.min(x)
+        if seed%2==0 and minU < np.max(np.abs(inputs)) < maxU:
             inputs *= -1
             targets *= -1
             done=True
-        if seed%2==1 and np.max(np.abs(inputs))<thr:
+        if seed%2==1 and minU < np.max(np.abs(inputs)) < maxU:
             done=True
-    fig, ax = plt.subplots()
-    ax.plot(sim.trange(), inputs)
-    ax.plot(sim.trange(), targets)
-    ax.set()
-    fig.savefig(f'plots/integrate/signals_{seed}.pdf')
+    # fig, ax = plt.subplots()
+    # ax.plot(sim.trange(), inputs)
+    # ax.plot(sim.trange(), targets)
+    # ax.set()
+    # fig.savefig(f'plots/integrate/signals_{seed}.pdf')
     stim_func1 = lambda t: inputs[int(t/dt)]
     stim_func2 = lambda t: targets[int(t/dt)]
     return stim_func1, stim_func2
 
 def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
-    m=Uniform(20, 40), stim_func1=lambda t: 0, stim_func2=lambda t: 0, Tff=0.2,
+    m=Uniform(20, 40), stim_func1=lambda t: 0, stim_func2=lambda t: 0, Tff=0.3,
     fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1), f2=DoubleExp(1e-3, 1e-1),
     d0=None, e0=None, w0=None, d1=None, e1=None, w1=None, d2=None, e2=None, w2=None,
     learn0=False, learn1=False, learn2=False, learn3=False,
@@ -98,8 +98,6 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
 
         if learn1:
             nengo.Connection(inptU, tarA, synapse=fTarget, transform=Tff)
-            # nengo.Connection(inptX, tarA, synapse=fTarget)
-            # connX = nengo.Connection(preX, ens, synapse=fTarget, solver=NoSolver(weightsX, weights=True))
             nodeU = LearningNode(preU, ens, 1, conn=connU, d=d1, e=e1, w=w1, eRate=eRate, dRate=dRate)
             nengo.Connection(preU.neurons, nodeU[:nPre], synapse=fTarget)
             nengo.Connection(ens.neurons, nodeU[nPre: nPre+nEns], synapse=fSmooth)
@@ -187,7 +185,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         print('train d0, e0, w0 from preX to ens')
         d0, e0, w0 = None, None, None
         for n in range(nTrain):
-            stim_func1, stim_func2 = makeSignal(tTrain, value=1.2, thr=1.4, dt=dt, seed=n)
+            stim_func1, stim_func2 = makeSignal(tTrain, maxX=1.2, dt=dt, seed=n)
             data = go(neuron_type, learn0=True, eRate=eRate,
                 stim_func1=stim_func1, stim_func2=stim_func2,
                 nEns=nEns, t=tTrain, dt=dt,
@@ -206,7 +204,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         print('train d1, e1, w1 from preU to ens')
         d1, e1, w1 = None, None, None
         for n in range(nTrain):
-            stim_func1, stim_func2 = makeSignal(tTrain, value=1.2, thr=1.4, dt=dt, seed=n)
+            stim_func1, stim_func2 = makeSignal(tTrain, maxX=1.2, dt=dt, seed=n)
             data = go(neuron_type, learn1=True, eRate=eRate,
                 stim_func1=stim_func1, stim_func2=stim_func2,
                 nEns=nEns, t=tTrain, dt=dt,
@@ -228,7 +226,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         targets = np.zeros((nTrain, int(tTrain/dt), 1))
         spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
-            stim_func1, stim_func2 = makeSignal(tTrain, value=1.2, thr=1.4, dt=dt, seed=n)
+            stim_func1, stim_func2 = makeSignal(tTrain, maxX=1.2, dt=dt, seed=n)
             data = go(neuron_type, learn2=True,
                 stim_func1=stim_func1, stim_func2=stim_func2,
                 nEns=nEns, t=tTrain, dt=dt,
@@ -252,7 +250,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         print('train e2, w2 from ens to ens2')
         e2, w2 = None, None
         for n in range(nTrain):
-            stim_func1, stim_func2 = makeSignal(tTrain, value=1.2, thr=1.4, dt=dt, seed=n)
+            stim_func1, stim_func2 = makeSignal(tTrain, maxX=1.2, dt=dt, seed=n)
             data = go(neuron_type, learn3=True, eRate=eRate,
                 stim_func1=stim_func1, stim_func2=stim_func2,
                 nEns=nEns, t=tTrain, dt=dt,
@@ -274,8 +272,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
     columns = ('neuron_type', 'n', 'error')
     print('estimating error')
     for n in range(nTest):
-        stim_func1, stim_func2 = makeSignal(tTest, value=1, dt=dt, seed=100+n)
-        data = go(neuron_type, #learn3=True, eRate=0,
+        stim_func1, stim_func2 = makeSignal(tTest, dt=dt, seed=100+n)
+        data = go(neuron_type,
             nEns=nEns, t=tTest, dt=dt,
             d0=d0, e0=e0, w0=w0,
             d1=d1, e1=e1, w1=w1,
@@ -308,7 +306,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
     # return times, inpt, tarX, xhat, xhat2, xhat3, dfs
     return times, inpt, tarX, xhat, dfs
 
-def compare(neuron_types, nTrain=50, tTrain=10, nTest=10, tTest=10, load=[], eRates=[3e-7, 1e-6, 1e-7, 3e-8]):
+def compare(neuron_types, nTrain=10, tTrain=10, nTest=10, tTest=10, load=[], eRates=[3e-7, 1e-6, 1e-7, 3e-8]):
 
     dfsAll = []
     fig, ax = plt.subplots(figsize=((5.25, 1.5)))
@@ -332,10 +330,10 @@ def compare(neuron_types, nTrain=50, tTrain=10, nTest=10, tTest=10, load=[], eRa
 
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
     sns.barplot(data=df, x='neuron_type', y='error', ax=ax)
-    ax.set(xlabel='', ylim=((0, 0.5)), yticks=((0, 0.5)), ylabel='Error')
+    ax.set(xlabel='', ylim=((0, 0.7)), yticks=((0, 0.7)), ylabel='Error')
     plt.tight_layout()
     fig.savefig('plots/figures/integrate_barplot.pdf')
     fig.savefig('plots/figures/integrate_barplot.svg')
 
 
-compare([LIF(), Izhikevich(), Wilson()],  load=[])
+compare([LIF()], load=[])

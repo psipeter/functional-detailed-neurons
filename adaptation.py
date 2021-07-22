@@ -117,6 +117,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 "adaptation", neuron_type, "ens1", n, nTrain)
 
     if 2 in load:
+        data = np.load(f"data/adaptation_{neuron_type}.npz")
         dOutNoF, dOut, tauRiseOut, tauFallOut = data['dOutNoF'], data['dOut'], data['tauRiseOut'], data['tauFallOut']
         fOut = DoubleExp(tauRiseOut, tauFallOut)
     else:
