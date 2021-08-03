@@ -25,274 +25,168 @@ sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
 
-def makeSignal(t, phase, dt, value=1, tauRise=1e-3, tauFall=1e-1):
-    # account for finite dt and tau when calculating the A matrix necessary on the recurrent transform
-    # see https://forum.nengo.ai/t/oscillator-example/513/2)
-    fTarget = (cont2discrete(Lowpass(tauRise), dt=dt) * cont2discrete(Lowpass(tauFall), dt=dt))
-    idealA= [[0, 2*np.pi], [-2*np.pi, 0]]
-    dsys = cont2discrete(LinearSystem((idealA, [[1], [0]], [[1, 0]], [[0]])), dt=dt)
-    simA = ss2sim(dsys, fTarget, dt=None).ss[0]
-    stim_func = lambda t: [0.1/dt, 0] if t<=dt else [0,0]
-    with nengo.Network() as model:
-        inpt = nengo.Node(stim_func)
-        tarX = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
-        nengo.Connection(inpt, tarX, synapse=fTarget)  # kick
-        nengo.Connection(tarX, tarX, synapse=fTarget, transform=simA)  # recurrent
-        pTarX = nengo.Probe(tarX, synapse=None, sample_every=dt)
-    with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
-        sim.run(t+1+dt, progress_bar=False)
-    targets = value*sim.data[pTarX]
-    return lambda t: targets[int((t+phase)/dt)], simA
+def go(neuron_type, t=10, seed=0, dt=1e-3, nEns=100, w=2*np.pi,
+    fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1),
+    d0=None, e0=None, w0=None, learn0=False, learn1=False, test=False,
+    eRate=1e-6, dRate=3e-6, tKick=0.1):
 
-def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
-    m=Uniform(200, 400), stim_func=lambda t: [0,0], simA=[[0,1],[-1,0]], tKick=0.1,
-    fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1), f1=DoubleExp(1e-3, 1e-1),
-    d0=None, e0=None, w0=None, d1=None, e1=None, w1=None, learn0=False, learn1=False, test=False,
-    eRate=1e-6, dRate=3e-6):
+    tauFall = (-1.0 / np.array(fTarget.poles))[1]
+    def feedback(x):
+        r = np.maximum(np.sqrt(x[0]**2 + x[1]**2), 1e-9)
+        dx0 = x[0]*(1-r**2)/r - x[1]*w 
+        dx1 = x[1]*(1-r**2)/r + x[0]*w 
+        return [tauFall*dx0 + x[0],  tauFall*dx1 + x[1]]
 
-    A = [[1, 0.1*2*np.pi], [-0.1*2*np.pi, 1]]
-    weightsFF = w0 if (np.any(w0) and not learn0) else np.zeros((nPre, nEns))
-    weightsFB = w1 if (np.any(w1) and not learn0 and not learn1) else np.zeros((nEns, nEns))
+    d0 = d0 if np.any(d0) else np.zeros((nEns, 2))
     with nengo.Network() as model:
-        inpt = nengo.Node(stim_func)
-        tarX = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
-        tarX2 = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
-        tarA = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=ReLu(), seed=seed)
-        tarA2 = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=ReLu(), seed=seed)
-        pre = nengo.Ensemble(nPre, 2, max_rates=m, neuron_type=ReLu(), seed=seed)
+        inpt = nengo.Node(lambda t: [1, 0] if t<tKick else [0,0])  # square wave kick
+        tarA = nengo.Ensemble(nEns, 2, gain=Uniform(1.2, 2.0), bias=Uniform(0,0), neuron_type=nengo.LIF(), seed=seed)
         ens = nengo.Ensemble(nEns, 2, neuron_type=neuron_type, seed=seed)
-        ens2 = nengo.Ensemble(nEns, 2, neuron_type=neuron_type, seed=seed)
+        xhatTarA = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
+        xhatEns = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
 
-        nengo.Connection(inpt, tarX, synapse=fTarget)  # kick
-        nengo.Connection(tarX, tarX2, synapse=None, transform=simA)
-        nengo.Connection(inpt, pre, synapse=None)
         nengo.Connection(inpt, tarA, synapse=fTarget)
-        nengo.Connection(tarX2, tarA2, synapse=fTarget)
-        connFF = nengo.Connection(pre, ens, synapse=fTarget, solver=NoSolver(weightsFF, weights=True))  # kick
+        connTarFB = nengo.Connection(tarA, tarA, synapse=fTarget, function=feedback)
+        connTarOut = nengo.Connection(tarA, xhatTarA, synapse=fTarget, function=feedback)
+        connEnsOut = nengo.Connection(ens, xhatEns, synapse=fTarget, solver=NoSolver(d0, weights=False))
 
-        if learn0:  # learn to receive supervised "recurrent" input from ReLU
-            nodeFF = LearningNode(pre, ens, 2, conn=connFF, d=d0, e=e0, w=w0, eRate=eRate, dRate=dRate)
-            nengo.Connection(pre.neurons, nodeFF[:nPre], synapse=fTarget)
-            nengo.Connection(ens.neurons, nodeFF[nPre: nPre+nEns], synapse=fSmooth)
-            nengo.Connection(tarA.neurons, nodeFF[nPre+nEns: nPre+nEns+nEns], synapse=fSmooth)
-            nengo.Connection(inpt, nodeFF[-2:], synapse=fTarget)
-            nengo.Connection(nodeFF, ens.neurons, synapse=None)
-
-        if learn1: # learn to receive supervised "recurrent" input from neuron_type
-            connSupv = nengo.Connection(ens, ens2, synapse=f1, solver=NoSolver(np.zeros((nEns, nEns)), weights=True))
-            nodeSupv = LearningNode(ens, ens2, 2, conn=connSupv, d=d1, e=e1, w=w1, eRate=eRate, dRate=0)
-            nengo.Connection(ens.neurons, nodeSupv[:nEns], synapse=f1)
-            nengo.Connection(ens2.neurons, nodeSupv[nEns: 2*nEns], synapse=fSmooth)
-            nengo.Connection(tarA2.neurons, nodeSupv[2*nEns: 3*nEns], synapse=fSmooth)
-            nengo.Connection(nodeSupv, ens2.neurons, synapse=None)
+        if learn1:
+            connSupv = nengo.Connection(tarA, ens, synapse=fTarget, solver=NoSolver(np.zeros((nEns, nEns)), weights=True))
+            nodeSupv = LearningNode(tarA, ens, 2, conn=connSupv, d=d0, e=e0, w=w0, eRate=eRate, dRate=0)
+            nengo.Connection(tarA.neurons, nodeSupv[:nEns], synapse=fTarget)
+            nengo.Connection(ens.neurons, nodeSupv[nEns: 2*nEns], synapse=fSmooth)
+            nengo.Connection(tarA.neurons, nodeSupv[2*nEns: 3*nEns], synapse=fSmooth)
+            nengo.Connection(xhatTarA, nodeSupv[-2:], synapse=None)
+            nengo.Connection(nodeSupv, ens.neurons, synapse=None)
 
         if test:
-            # conn2 = nengo.Connection(ens, ens2, synapse=f1, solver=NoSolver(weightsFB, weights=True))  # recurrent
-            connFB = nengo.Connection(ens, ens, synapse=f1, solver=NoSolver(weightsFB, weights=True))  # recurrent
-            off = nengo.Node(lambda t: 0 if t<=tKick else -1e4)
-            nengo.Connection(off, pre.neurons, synapse=None, transform=np.ones((nPre, 1)))
+            connSupv = nengo.Connection(tarA, ens, synapse=fTarget, solver=NoSolver(w0, weights=True))  # kick
+            connEnsFB = nengo.Connection(ens, ens, synapse=fTarget, solver=NoSolver(w0, weights=True))  # recurrent
+            # off = nengo.Node(lambda t: 0 if t<=tKick else -1e4)  # remove kick
+            # nengo.Connection(off, tarA.neurons, synapse=None, transform=np.ones((nEns, 1)))
 
-
-        pInpt = nengo.Probe(inpt, synapse=None)
-        pPre = nengo.Probe(pre.neurons, synapse=None)
         pEns = nengo.Probe(ens.neurons, synapse=None)
-        pEns2 = nengo.Probe(ens2.neurons, synapse=None)
         pTarA = nengo.Probe(tarA.neurons, synapse=None)
-        pTarA2 = nengo.Probe(tarA2.neurons, synapse=None)
-        pTarX = nengo.Probe(tarX, synapse=None)
-        pTarX2 = nengo.Probe(tarX2, synapse=None)
+        pXhatTarA = nengo.Probe(xhatTarA, synapse=None)
+        pXhatEns = nengo.Probe(xhatEns, synapse=None)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
-        if isinstance(neuron_type, Pyramidal): neuron.h.init()
         sim.run(t, progress_bar=True)
-        if isinstance(neuron_type, Pyramidal): nrnReset(sim, model)
-    
+
     if learn0:
-        d0, e0, w0 = nodeFF.d, nodeFF.e, nodeFF.w
+        d0 = sim.data[connTarFB].weights
     if learn1:
-        e1, w1 = nodeSupv.e, nodeSupv.w
+        e0, w0 = nodeSupv.e, nodeSupv.w
 
     return dict(
         times=sim.trange(),
-        inpt=sim.data[pInpt],
-        pre=sim.data[pPre],
         ens=sim.data[pEns],
-        ens2=sim.data[pEns2],
         tarA=sim.data[pTarA],
-        tarX=sim.data[pTarX],
-        tarX2=sim.data[pTarX2],
+        xhatTarA=sim.data[pXhatTarA],
+        xhatEns=sim.data[pXhatEns],
         e0=e0,
         d0=d0,
         w0=w0,
-        e1=e1,
-        d1=d1,
-        w1=w1,
-        f1=f1,
     )
 
-def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTransTrain=0, tTransTest=0,
-    nEns=100, dt=1e-3, tKick=0.1, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1),
+def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTransTest=0,
+    nEns=500, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1),
     load=[]):
 
-    print(f'Neuron type: {neuron_type}')
-
+    rng = np.random.RandomState(seed=0)
     if 0 in load:
         data = np.load(f"data/oscillate_{neuron_type}.npz")
-        d0, e0, w0 = data['d0'], data['e0'], data['w0']
+        d0 = data['d0']
     else:
-        print('train d0, e0, w0 from pre to ens (kick input)')
-        d0, e0, w0 = None, None, None
-        for n in range(nTrain):
-            stim_func, simA = makeSignal(tTrain, n/nTrain, dt, value=1.2)
-            data = go(neuron_type, stim_func=stim_func, simA=simA, learn0=True, eRate=eRate,
-                nEns=nEns, t=tTrain, dt=dt,
-                d0=d0, e0=e0, w0=w0,
-                fTarget=fTarget, fSmooth=fSmooth)
-            d0, e0, w0 = data['d0'], data['e0'], data['w0']
-            np.savez(f"data/oscillate_{neuron_type}.npz", d0=d0, e0=e0, w0=w0)
-            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
-                "oscillate", neuron_type, "ens", n, nTrain)
+        print('decoders for tarA')
+        data = go(neuron_type, nEns=nEns, t=tTrain, fTarget=fTarget, learn0=True)
+        d0 = data['d0'].T
+        np.savez(f"data/oscillate_{neuron_type}.npz",
+            d0=d0)
+
+        fig, ax = plt.subplots()
+        ax.plot(data['times'], data['xhatTarA'], label='xhat (ReLU)')
+        ax.plot(data['times'], data['xhatEns'], label='xhat (ens)')
+        ax.legend()
+        fig.savefig('plots/oscillate/tarA.pdf')
 
     if 1 in load:
         data = np.load(f"data/oscillate_{neuron_type}.npz")
-        d1, tauRise, tauFall = data['d1'], data['tauRise'], data['tauFall']
-        f1 = DoubleExp(tauRise, tauFall)
+        e0, w0 = data['e0'], data['w0']
     else:
-        print('train d1 and f1 for ens to compute the A matrix for the oscillator')
-        targets = np.zeros((nTrain, int(tTrain/dt), 2))
-        spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
+        print('encoders/weights for supv')
+        e0, w0 = None, None
         for n in range(nTrain):
-            stim_func, simA = makeSignal(tTrain, n/nTrain, dt, value=1.2)
-            data = go(neuron_type, stim_func=stim_func, simA=simA, 
-                nEns=nEns, t=tTrain+tTransTrain, dt=dt,
-                d0=d0, e0=e0, w0=w0,
+            data = go(neuron_type, learn1=True, eRate=eRate, tKick=rng.uniform(0.05, 0.15),
+                nEns=nEns, t=tTrain, dt=dt,
+                d0=d0,
+                e0=e0, w0=w0,
                 fTarget=fTarget, fSmooth=fSmooth)
-            targets[n] = fTarget.filt(data['tarX2'], dt=dt)[int(tTransTrain/dt):]
-            spikes[n] = data['ens'][int(tTransTrain/dt):]
-            fig, ax = plt.subplots()
-            ax.plot(data['times'], data['tarX'], color='k')
-            fig.savefig(f'plots/oscillate/communicate_{n}.pdf')
-        d1, tauRise, tauFall = trainDF(spikes, targets, nTrain, dt=dt, network="oscillate", neuron_type=neuron_type, ens="ens")
-        f1 = DoubleExp(tauRise, tauFall)
-        np.savez(f"data/oscillate_{neuron_type}.npz",
-            d0=d0, e0=e0, w0=w0,
-            d1=d1, tauRise=tauRise, tauFall=tauFall)
+            e0, w0 = data['e0'], data['w0']
+            np.savez(f"data/oscillate_{neuron_type}.npz",
+                d0=d0,
+                e0=e0, w0=w0)
+            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+                "oscillate", neuron_type, "ens", n, nTrain)
 
     if 2 in load:
-        data = np.load(f"data/oscillate_{neuron_type}.npz")
-        e1, w1 = data['e1'], data['w1']
-    else:
-        print('train e1, w1 from ens to ens2')
-        e1, w1 = None, None
-        for n in range(nTrain):
-            stim_func, simA = makeSignal(tTrain, n/nTrain, dt, value=1.2)
-            data = go(neuron_type, stim_func=stim_func, simA=simA, learn1=True, eRate=eRate,
-                nEns=nEns, t=tTrain, dt=dt,
-                d0=d0, e0=e0, w0=w0,
-                d1=d1, f1=f1,
-                e1=e1, w1=w1,
-                fTarget=fTarget, fSmooth=fSmooth)
-            e1, w1 = data['e1'], data['w1']
-            np.savez(f"data/oscillate_{neuron_type}.npz",
-                d0=d0, e0=e0, w0=w0,
-                d1=d1, tauRise=tauRise, tauFall=tauFall,
-                e1=e1, w1=w1)
-            plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens'], dt=dt),
-                "oscillate", neuron_type, "ens2", n, nTrain)
+        print('checking activities/estimate with zero learning rate')
+        data = go(neuron_type, learn1=True, eRate=0,
+            nEns=nEns, t=tTrain, dt=dt,
+            d0=d0,
+            e0=e0, w0=w0,
+            fTarget=fTarget, fSmooth=fSmooth)
+        plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+            "oscillate", neuron_type, "ens", -1, 0)
 
-    # print('check ens to ens2 connection')
-    # stim_func, simA = makeSignal(tTrain, 0, dt, value=1.2)
-    # data = go(neuron_type, stim_func=stim_func, simA=simA, learn1=True, eRate=0,
-    #     nEns=nEns, t=tTrain, dt=dt,
-    #     d0=d0, e0=e0, w0=w0,
-    #     d1=d1, f1=f1,
-    #     e1=e1, w1=w1,
-    #     fTarget=fTarget, fSmooth=fSmooth)
-    # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens'], dt=dt),
-    #     "oscillate", neuron_type, "ens3", 0, 0)
-    # times = data['times']
-    # tarX = data['tarX']
-    # aEns = f1.filt(data['ens'], dt=dt)
-    # aEns2 = f1.filt(data['ens2'], dt=dt)
-    # xhat = np.dot(aEns, d1)
-    # xhat2 = np.dot(aEns2, d1)
-    # fig, ax = plt.subplots(figsize=((5.25, 1.5)))
-    # ax.plot(data['times'], fTarget.filt(data['tarX'], dt=dt), color='k', linewidth=0.5)
-    # ax.plot(data['times'], xhat, linewidth=0.5)
-    # ax.plot(data['times'], xhat2, linewidth=0.5)
-    # ax.set(xlim=((0, tTrain)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
-    # fig.savefig(f'plots/oscillate/check.pdf')
-
-    # data = go(neuron_type, stim_func=stim_func, simA=simA, test=True,
-    #     nEns=nEns, t=tTrain, dt=dt,
-    #     d0=d0, e0=e0, w0=w0,
-    #     d1=d1, f1=f1,
-    #     e1=e1, w1=w1,
-    #     fTarget=fTarget, fSmooth=fSmooth)
-    # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens'], dt=dt),
-    #     "oscillate", neuron_type, "ens3", 1, 0)
-    # times = data['times']
-    # tarX = data['tarX']
-    # aEns = f1.filt(data['ens'], dt=dt)
-    # aEns2 = f1.filt(data['ens2'], dt=dt)
-    # xhat = np.dot(aEns, d1)
-    # xhat2 = np.dot(aEns2, d1)
-    # fig, ax = plt.subplots(figsize=((5.25, 1.5)))
-    # ax.plot(data['times'], fTarget.filt(data['tarX'], dt=dt), color='k', linewidth=0.5)
-    # ax.plot(data['times'], xhat, linewidth=0.5)
-    # ax.plot(data['times'], xhat2, linewidth=0.5)
-    # ax.set(xlim=((0, tTrain)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
-    # fig.savefig(f'plots/oscillate/check2.pdf')
+        fig, ax = plt.subplots()
+        ax.plot(data['times'], data['xhatTarA'], label='xhat (ReLU)')
+        ax.plot(data['times'], data['xhatEns'], label='xhat (ens)')
+        ax.legend()
+        fig.savefig('plots/oscillate/supervised.pdf')
 
     dfs = []
     columns = ('neuron_type', 'n', 'error rmse', 'error freq', 'dimension')
     print('estimating error')
     for n in range(nTest):
-        stim_func, simA = makeSignal(tTest+tTransTest, n/nTest, dt)
-        data = go(neuron_type, stim_func=stim_func, simA=simA,  test=True,
-            nEns=nEns, t=tTest+tTransTest, dt=dt, tKick=tKick,
-            d0=d0, e0=e0, w0=w0,
-            d1=d1, f1=f1,
-            e1=e1, w1=w1,
-            fTarget=fTarget, fSmooth=fSmooth)
+        data = go(neuron_type, test=True, tKick=rng.uniform(0.5, 1.5),
+            nEns=nEns, t=tTest, dt=dt,
+            d0=d0,
+            w0=w0,
+            fTarget=fTarget)
         times = data['times']
-        tarX = data['tarX']
-        aEns = f1.filt(data['ens'], dt=dt)
-        xhat = np.dot(aEns, d1)
-        errorRMSE0, errorFreq0, freq0, phase0, mag0, base0 = fitSinusoid(xhat[int(tTransTest/dt):,0], neuron_type, dt=dt)  # muFreq=muFreq, sigmaFreq=sigmaFreq, base=base
-        errorRMSE1, errorFreq1, freq1, phase1, mag1, base1 = fitSinusoid(xhat[int(tTransTest/dt):,1], neuron_type, dt=dt)  # muFreq=muFreq, sigmaFreq=sigmaFreq, base=base
-        # error0 = rmse(xhat[int(tTrans/dt):,0], tarX[int(tTrans/dt):,0])
-        # error1 = rmse(xhat[int(tTrans/dt):,1], tarX[int(tTrans/dt):,1])
+        xhat = data['xhatEns']
+        errorRMSE0, errorFreq0, freq0, phase0, mag0, base0 = fitSinusoid(xhat[:,0], neuron_type, tTrans=tTransTest, dt=dt)
+        errorRMSE1, errorFreq1, freq1, phase1, mag1, base1 = fitSinusoid(xhat[:,1], neuron_type, tTrans=tTransTest, dt=dt)
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, errorRMSE0, errorFreq0, '0']], columns=columns))
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, errorRMSE1, errorFreq1, '1']], columns=columns))
+        sin0 = mag0*np.sin(freq0*(times+phase0))
+        sin1 = mag1*np.sin(freq1*(times+phase1))
+    return times, xhat, sin0, sin1, freq0, freq1, dfs
 
-    return times, tarX, xhat, [freq0, freq1], dfs
-
-def compare(neuron_types, nTrain=10, tTrain=10, nTest=1, tTest=10, tTransTest=2, tKick=0.1, load=[],
-    eRates=[3e-7, 1e-6, 1e-7, 3e-8], tTransTrains=[0, 5, 5, 10]):
+def compare(neuron_types, nTrain=10, tTrain=20, nTest=3, tTest=10, tTransTest=5, load=[],
+    eRates=[3e-7, 1e-6, 1e-7, 3e-8]):
 
     dfsAll = []
     fig, ax = plt.subplots(figsize=((5.25, 1.5)))
     fig2, ax2 = plt.subplots(figsize=((5.25, 1.5)))
     for i, neuron_type in enumerate(neuron_types):
-        times, tarX, xhat, freq, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest,
-            eRate=eRates[i], tTransTrain=tTransTrains[i], tTransTest=tTransTest, tKick=tKick, load=load)
+        times, xhat, sin0, sin1, freq0, freq1, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest,
+            eRate=eRates[i], tTransTest=tTransTest, load=load)
         dfsAll.extend(dfs)
-        ax.plot(times, xhat[:,0], label=f"{str(neuron_type)[:-2]}, " + r"$\omega=$" + f"{freq[0]:.2f}", linewidth=0.5)
-        ax2.plot(times, xhat[:,1], label=f"{str(neuron_type)[:-2]}, " + r"$\omega=$" + f"{freq[1]:.2f}", linewidth=0.5)
+        ax.plot(times, xhat[:,0], label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
+        ax2.plot(times, xhat[:,1], label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
     df = pd.concat([df for df in dfsAll], ignore_index=True)
 
-    ax.plot(times, tarX[:,0], label='target, ' + r"$\omega=$" + f"{2*np.pi:.2f}", color='k', linewidth=0.5)
-    # ax.axvline(tTransTest, color='k', linestyle=":", label="transient", linewidth=0.5)
-    ax.set(xlim=((tTransTest, tTest+tTransTest)), xticks=(()), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
+    ax.plot(times, sin0, label=f'sin({freq0:.2f}*t)', color='k', linewidth=0.5)
+    ax.set(xlim=((0, tTest)), xticks=(()), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
     ax.legend(loc='upper right', frameon=False)
     plt.tight_layout()
     fig.savefig('plots/figures/oscillate_dim1.pdf')
     fig.savefig('plots/figures/oscillate_dim1.svg')
 
-    ax2.plot(times, tarX[:,1], label='target, ' + r"$\omega=$" + f"{2*np.pi:.2f}", color='k', linewidth=0.5)
-    # ax2.axvline(tTransTest, color='k', linestyle=":", label="transient", linewidth=0.5)
-    ax2.set(xlim=((tTransTest, tTest+tTransTest)), xticks=(()), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
+    ax2.plot(times, sin1, label=f'sin({freq1:.2f}*t)', color='k', linewidth=0.5)
+    ax2.set(xlim=((0, tTest)), xticks=(()), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
     ax2.legend(loc='upper right', frameon=False)
     plt.tight_layout()
     fig2.savefig('plots/figures/oscillate_dim2.pdf')
@@ -300,17 +194,17 @@ def compare(neuron_types, nTrain=10, tTrain=10, nTest=1, tTest=10, tTransTest=2,
 
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
     sns.barplot(data=df, x='neuron_type', y='error rmse', ax=ax)
-    ax.set(xlabel='', ylim=((0, 0.2)), yticks=((0, 0.2)), ylabel='Error (RMSE)')
+    ax.set(xlabel='', ylim=((0, 0.1)), yticks=((0, 0.1)), ylabel='Error (RMSE)')
     plt.tight_layout()
     fig.savefig('plots/figures/oscillate_barplot_rmse.pdf')
     fig.savefig('plots/figures/oscillate_barplot_rmse.svg')
 
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
     sns.barplot(data=df, x='neuron_type', y='error freq', ax=ax)
-    ax.set(xlabel='', ylim=((0, 0.1)), yticks=((0, 0.1)), ylabel=r'Error ($\omega$)')
+    ax.set(xlabel='', ylim=((0, 0.03)), yticks=((0, 0.03)), ylabel=r'Error ($\omega$)')
     plt.tight_layout()
     fig.savefig('plots/figures/oscillate_barplot_freq.pdf')
     fig.savefig('plots/figures/oscillate_barplot_freq.svg')
 
 
-compare([LIF()], tTransTrains=[0], eRates=[3e-7], load=[0,1,2])
+compare([LIF()], nTrain=5, eRates=[3e-7], load=[])
