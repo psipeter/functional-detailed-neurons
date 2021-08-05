@@ -11,9 +11,10 @@ from nengo.utils.numpy import rmse
 from nengolib import Lowpass, DoubleExp
 from nengolib.synapses import ss2sim
 from nengolib.signal import LinearSystem, cont2discrete
+from nengolib.stats import sphere, ball
 
 from neuron_types import LIF, Izhikevich, Wilson, Pyramidal, nrnReset
-from utils import LearningNode, trainDF, fitSinusoid
+from utils import LearningNode, trainDF, fitSinusoid, getGainLIF
 from plotter import plotActivities
 
 import neuron
@@ -25,7 +26,7 @@ sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
 
-def go(neuron_type, t=10, seed=0, dt=1e-3, nEns=100, w=2*np.pi,
+def go(neuron_type, t=10, seed=0, dt=1e-3, nEns=100, w=2*np.pi, max_rates=Uniform(30, 60),
     fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1),
     d0=None, e0=None, w0=None, learn0=False, learn1=False, test=False,
     eRate=1e-6, dRate=3e-6, tKick=0.1):
@@ -38,9 +39,14 @@ def go(neuron_type, t=10, seed=0, dt=1e-3, nEns=100, w=2*np.pi,
         return [tauFall*dx0 + x[0],  tauFall*dx1 + x[1]]
 
     d0 = d0 if np.any(d0) else np.zeros((nEns, 2))
+    gain, bias = getGainLIF(nEns, max_rates)
+
     with nengo.Network() as model:
         inpt = nengo.Node(lambda t: [1, 0] if t<tKick else [0,0])  # square wave kick
-        tarA = nengo.Ensemble(nEns, 2, gain=Uniform(1.2, 2.0), bias=Uniform(0,0), neuron_type=nengo.LIF(), seed=seed)
+        tarA = nengo.Ensemble(nEns, 2, neuron_type=nengo.LIF(), gain=gain, bias=bias, seed=seed)
+        # tarA = nengo.Ensemble(nEns, 2, neuron_type=nengo.LIF(), max_rates=Uniform(200, 400), intercepts=Uniform(-0.01, 0.01), seed=seed)
+        # tarA = nengo.Ensemble(nEns, 2, neuron_type=nengo.LIF(), max_rates=Uniform(20, 40), intercepts=Uniform(-0.01, 0.01), seed=seed)
+        # tarA = nengo.Ensemble(nEns, 2, neuron_type=ReLu(), max_rates=Uniform(20, 40), intercepts=Uniform(-0.4, 0.4), seed=seed)
         ens = nengo.Ensemble(nEns, 2, neuron_type=neuron_type, seed=seed)
         xhatTarA = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
         xhatEns = nengo.Ensemble(1, 2, neuron_type=nengo.Direct())
@@ -60,10 +66,10 @@ def go(neuron_type, t=10, seed=0, dt=1e-3, nEns=100, w=2*np.pi,
             nengo.Connection(nodeSupv, ens.neurons, synapse=None)
 
         if test:
+            off = nengo.Node(lambda t: 0 if t<=tKick else -1e4)
             connSupv = nengo.Connection(tarA, ens, synapse=fTarget, solver=NoSolver(w0, weights=True))  # kick
             connEnsFB = nengo.Connection(ens, ens, synapse=fTarget, solver=NoSolver(w0, weights=True))  # recurrent
-            # off = nengo.Node(lambda t: 0 if t<=tKick else -1e4)  # remove kick
-            # nengo.Connection(off, tarA.neurons, synapse=None, transform=np.ones((nEns, 1)))
+            nengo.Connection(off, tarA.neurons, synapse=None, transform=np.ones((nEns, 1)))  # remove kick
 
         pEns = nengo.Probe(ens.neurons, synapse=None)
         pTarA = nengo.Probe(tarA.neurons, synapse=None)
@@ -91,7 +97,7 @@ def go(neuron_type, t=10, seed=0, dt=1e-3, nEns=100, w=2*np.pi,
 
 def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTransTest=0,
     nEns=500, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1),
-    load=[]):
+    load=[], tKick=0.1):
 
     rng = np.random.RandomState(seed=0)
     if 0 in load:
@@ -99,7 +105,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTransTest=0,
         d0 = data['d0']
     else:
         print('decoders for tarA')
-        data = go(neuron_type, nEns=nEns, t=tTrain, fTarget=fTarget, learn0=True)
+        data = go(neuron_type, nEns=nEns, t=tTrain, fTarget=fTarget, learn0=True, tKick=tKick)
         d0 = data['d0'].T
         np.savez(f"data/oscillate_{neuron_type}.npz",
             d0=d0)
@@ -117,7 +123,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTransTest=0,
         print('encoders/weights for supv')
         e0, w0 = None, None
         for n in range(nTrain):
-            data = go(neuron_type, learn1=True, eRate=eRate, tKick=rng.uniform(0.05, 0.15),
+            data = go(neuron_type, learn1=True, eRate=eRate, tKick=rng.uniform(tKick/2, tKick*2),
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0,
                 e0=e0, w0=w0,
@@ -149,7 +155,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTransTest=0,
     columns = ('neuron_type', 'n', 'error rmse', 'error freq', 'dimension')
     print('estimating error')
     for n in range(nTest):
-        data = go(neuron_type, test=True, tKick=rng.uniform(0.5, 1.5),
+        data = go(neuron_type, test=True, tKick=rng.uniform(tKick*2, tKick*4),
             nEns=nEns, t=tTest, dt=dt,
             d0=d0,
             w0=w0,
@@ -164,7 +170,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTransTest=0,
         sin1 = mag1*np.sin(freq1*(times+phase1))
     return times, xhat, sin0, sin1, freq0, freq1, dfs
 
-def compare(neuron_types, nTrain=10, tTrain=20, nTest=3, tTest=10, tTransTest=5, load=[],
+def compare(neuron_types, nTrain=10, tTrain=20, nTest=1, tTest=20, tTransTest=10, load=[], tKick=0.1,
     eRates=[3e-7, 1e-6, 1e-7, 3e-8]):
 
     dfsAll = []
@@ -172,7 +178,7 @@ def compare(neuron_types, nTrain=10, tTrain=20, nTest=3, tTest=10, tTransTest=5,
     fig2, ax2 = plt.subplots(figsize=((5.25, 1.5)))
     for i, neuron_type in enumerate(neuron_types):
         times, xhat, sin0, sin1, freq0, freq1, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest,
-            eRate=eRates[i], tTransTest=tTransTest, load=load)
+            eRate=eRates[i], tTransTest=tTransTest, tKick=tKick, load=load)
         dfsAll.extend(dfs)
         ax.plot(times, xhat[:,0], label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
         ax2.plot(times, xhat[:,1], label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
@@ -207,4 +213,4 @@ def compare(neuron_types, nTrain=10, tTrain=20, nTest=3, tTest=10, tTransTest=5,
     fig.savefig('plots/figures/oscillate_barplot_freq.svg')
 
 
-compare([LIF()], nTrain=5, eRates=[3e-7], load=[])
+compare([LIF()], eRates=[3e-7], load=[2], tKick=0.1)
