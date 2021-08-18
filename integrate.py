@@ -25,7 +25,7 @@ sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
 
-def makeSignal(t, maxX=1, minU=0, maxU=1.2, dt=1e-3, seed=0):
+def makeSignal(t, maxX=1.0, minU=0, maxU=1.2, dt=1e-3, seed=0):
     rng = np.random.RandomState(seed=seed)
     done = False
     while not done:
@@ -62,7 +62,7 @@ def makeSignal(t, maxX=1, minU=0, maxU=1.2, dt=1e-3, seed=0):
     return stim_func1, stim_func2
 
 def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
-    m=Uniform(20, 40), stim_func1=lambda t: 0, stim_func2=lambda t: 0, Tff=0.3,
+    m=Uniform(30, 60), i=Uniform(-0.8, 0.8), stim_func1=lambda t: 0, stim_func2=lambda t: 0, Tff=0.3,
     fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1), f2=DoubleExp(1e-3, 1e-1),
     d0=None, e0=None, w0=None, d1=None, e1=None, w1=None, d2=None, e2=None, w2=None,
     learn0=False, learn1=False, learn2=False, learn3=False,
@@ -75,9 +75,9 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
         inptU = nengo.Node(stim_func1)
         inptX = nengo.Node(stim_func2)
         tarX = nengo.Ensemble(1, 1, neuron_type=nengo.Direct())
-        tarA = nengo.Ensemble(nEns, 1, max_rates=m, neuron_type=ReLu(), seed=seed)
-        preU = nengo.Ensemble(nPre, 1, max_rates=m, neuron_type=ReLu(), seed=seed)
-        preX = nengo.Ensemble(nPre, 1, max_rates=m, neuron_type=ReLu(), seed=seed)
+        tarA = nengo.Ensemble(nEns, 1, max_rates=m, intercepts=i, neuron_type=ReLu(), seed=seed)
+        preU = nengo.Ensemble(nPre, 1, neuron_type=ReLu(), seed=seed)
+        preX = nengo.Ensemble(nPre, 1, neuron_type=ReLu(), seed=seed)
         ens = nengo.Ensemble(nEns, 1, neuron_type=neuron_type, seed=seed)
 
         nengo.Connection(inptX, tarX, synapse=None)
@@ -108,27 +108,47 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
         if learn2:
             connX = nengo.Connection(preX, ens, synapse=fTarget, solver=NoSolver(weightsX, weights=True))
 
+        # if learn3:
+        #     preU2 = nengo.Ensemble(nPre, 1, neuron_type=ReLu(), seed=seed)  # add one delay before give input to to ens2
+        #     preU3 = nengo.Ensemble(nPre, 1, neuron_type=ReLu(), seed=seed)  # add one delay before give input to ens3
+        #     preX3 = nengo.Ensemble(nPre, 1, neuron_type=ReLu(), seed=seed)  # add one delay before give supervision to ens3
+        #     ens2 = nengo.Ensemble(nEns, 1, neuron_type=neuron_type, seed=seed)  # observed activities
+        #     ens3 = nengo.Ensemble(nEns, 1, neuron_type=neuron_type, seed=seed)  # target activities
+        #     nengo.Connection(inptU, preU2, synapse=fTarget)
+        #     nengo.Connection(inptU, preU3, synapse=fTarget)
+        #     nengo.Connection(inptX, preX3, synapse=fTarget)
+        #     connX = nengo.Connection(preX, ens, synapse=fTarget, solver=NoSolver(weightsX, weights=True))
+        #     connU2 = nengo.Connection(preU2, ens2, synapse=fTarget, solver=NoSolver(weightsU, weights=True))  # analogous to connU3
+        #     connX2 = nengo.Connection(ens, ens2, synapse=f2, solver=NoSolver(np.zeros((nEns, nEns)), weights=True))  # analogous to connX3
+        #     connU3 = nengo.Connection(preU3, ens3, synapse=fTarget, solver=NoSolver(weightsU, weights=True))
+        #     connX3 = nengo.Connection(preX3, ens3, synapse=fTarget, solver=NoSolver(weightsX, weights=True))
+        #     nodeX2 = LearningNode(ens, ens2, 1, conn=connX2, d=d2, e=e2, w=w2, eRate=eRate, dRate=0)
+        #     nengo.Connection(ens.neurons, nodeX2[:nEns], synapse=f2)
+        #     nengo.Connection(ens2.neurons, nodeX2[nEns: 2*nEns], synapse=fSmooth)
+        #     nengo.Connection(ens3.neurons, nodeX2[2*nEns: 3*nEns], synapse=fSmooth)
+        #     nengo.Connection(nodeX2, ens2.neurons, synapse=None)
+        #     pEns2 = nengo.Probe(ens2.neurons, synapse=None)
+        #     pEns3 = nengo.Probe(ens3.neurons, synapse=None)
+
         if learn3:
-            preU2 = nengo.Ensemble(nPre, 1, max_rates=m, neuron_type=ReLu(), seed=seed)  # add one delay before give input to to ens2
-            preU3 = nengo.Ensemble(nPre, 1, max_rates=m, neuron_type=ReLu(), seed=seed)  # add one delay before give input to ens3
-            preX3 = nengo.Ensemble(nPre, 1, max_rates=m, neuron_type=ReLu(), seed=seed)  # add one delay before give supervision to ens3
+            tarA2 = nengo.Ensemble(nEns, 1, max_rates=m, intercepts=i, neuron_type=ReLu(), seed=seed)
+            preU2 = nengo.Ensemble(nPre, 1, neuron_type=ReLu(), seed=seed)  # add one delay before give input to to ens2
             ens2 = nengo.Ensemble(nEns, 1, neuron_type=neuron_type, seed=seed)  # observed activities
-            ens3 = nengo.Ensemble(nEns, 1, neuron_type=neuron_type, seed=seed)  # target activities
             nengo.Connection(inptU, preU2, synapse=fTarget)
-            nengo.Connection(inptU, preU3, synapse=fTarget)
-            nengo.Connection(inptX, preX3, synapse=fTarget)
+            nengo.Connection(preX, tarA, synapse=fTarget)
+            nengo.Connection(preU2, tarA2, synapse=fTarget, transform=Tff)
+            nengo.Connection(tarA, tarA2, synapse=fTarget)
             connX = nengo.Connection(preX, ens, synapse=fTarget, solver=NoSolver(weightsX, weights=True))
-            connU2 = nengo.Connection(preU2, ens2, synapse=fTarget, solver=NoSolver(weightsU, weights=True))  # analogous to connU3
-            connX2 = nengo.Connection(ens, ens2, synapse=f2, solver=NoSolver(np.zeros((nEns, nEns)), weights=True))  # analogous to connX3
-            connU3 = nengo.Connection(preU3, ens3, synapse=fTarget, solver=NoSolver(weightsU, weights=True))
-            connX3 = nengo.Connection(preX3, ens3, synapse=fTarget, solver=NoSolver(weightsX, weights=True))
+            connU2 = nengo.Connection(preU2, ens2, synapse=fTarget, solver=NoSolver(weightsU, weights=True))
+            connX2 = nengo.Connection(ens, ens2, synapse=f2, solver=NoSolver(np.zeros((nEns, nEns)), weights=True))
             nodeX2 = LearningNode(ens, ens2, 1, conn=connX2, d=d2, e=e2, w=w2, eRate=eRate, dRate=0)
             nengo.Connection(ens.neurons, nodeX2[:nEns], synapse=f2)
             nengo.Connection(ens2.neurons, nodeX2[nEns: 2*nEns], synapse=fSmooth)
-            nengo.Connection(ens3.neurons, nodeX2[2*nEns: 3*nEns], synapse=fSmooth)
+            nengo.Connection(tarA2.neurons, nodeX2[2*nEns: 3*nEns], synapse=fSmooth)
             nengo.Connection(nodeX2, ens2.neurons, synapse=None)
             pEns2 = nengo.Probe(ens2.neurons, synapse=None)
-            pEns3 = nengo.Probe(ens3.neurons, synapse=None)
+            pTarA2 = nengo.Probe(tarA2.neurons, synapse=None)
+            pTarA2X = nengo.Probe(tarA2, synapse=fTarget)
 
         pInptU = nengo.Probe(inptU, synapse=None)
         pInptX = nengo.Probe(inptX, synapse=None)
@@ -136,6 +156,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
         pPreX = nengo.Probe(preX.neurons, synapse=None)
         pEns = nengo.Probe(ens.neurons, synapse=None)
         pTarA = nengo.Probe(tarA.neurons, synapse=None)
+        pTarAX = nengo.Probe(tarA, synapse=fTarget)
         pTarX = nengo.Probe(tarX, synapse=None)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
@@ -158,8 +179,11 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
         preX=sim.data[pPreX],
         ens=sim.data[pEns],
         ens2=sim.data[pEns2] if learn3 else None,
-        ens3=sim.data[pEns3] if learn3 else None,
+        # ens3=sim.data[pEns3] if learn3 else None,
+        tarA2=sim.data[pTarA2] if learn3 else None,
+        tarA2X=sim.data[pTarA2X] if learn3 else None,
         tarA=sim.data[pTarA],
+        tarAX=sim.data[pTarAX],
         tarX=sim.data[pTarX],
         e0=e0,
         d0=d0,
@@ -196,6 +220,15 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 d0=d0, e0=e0, w0=w0)
             plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
                 "integrate", neuron_type, "ensX", n, nTrain)
+        print('check preX to ens connection')
+        stim_func1, stim_func2 = makeSignal(tTrain, dt=dt, seed=0)
+        data = go(neuron_type, learn0=True, eRate=0,
+            stim_func1=stim_func1, stim_func2=stim_func2,
+            nEns=nEns, t=tTrain, dt=dt,
+            d0=d0, e0=e0, w0=w0,
+            fTarget=fTarget, fSmooth=fSmooth)
+        plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+            "integrate", neuron_type, "ensX", -1, 0)
 
     if 1 in load:
         data = np.load(f"data/integrate_{neuron_type}.npz")
@@ -217,6 +250,16 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 d1=d1, e1=e1, w1=w1)
             plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
                 "integrate", neuron_type, "ensU", n, nTrain)
+        print('check preU to ens connection')
+        stim_func1, stim_func2 = makeSignal(tTrain, dt=dt, seed=0)
+        data = go(neuron_type, learn1=True, eRate=0,
+            stim_func1=stim_func1, stim_func2=stim_func2,
+            nEns=nEns, t=tTrain, dt=dt,
+            d0=d0, e0=e0, w0=w0,
+            d1=d1, e1=e1, w1=w1,
+            fTarget=fTarget, fSmooth=fSmooth)
+        plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+            "integrate", neuron_type, "ensU", -1, 0)
 
     if 2 in load:
         d2, tauRise, tauFall = data['d2'], data['tauRise'], data['tauFall']
@@ -242,6 +285,14 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
             d0=d0, e0=e0, w0=w0,
             d1=d1, e1=e1, w1=w1,
             d2=d2, tauRise=tauRise, tauFall=tauFall)
+        times = data['times']
+        tarX = targets[-1]
+        xhat = np.dot(f2.filt(spikes[-1], dt=dt), d2)
+        fig, ax = plt.subplots(figsize=((5.25, 1.5)))
+        ax.plot(data['times'], tarX, color='k', linewidth=0.5)
+        ax.plot(data['times'], xhat, linewidth=0.5)
+        ax.set(xlim=((0, tTrain)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
+        fig.savefig(f'plots/integrate/decode_{neuron_type}.pdf')
 
     if 3 in load:
         data = np.load(f"data/integrate_{neuron_type}.npz")
@@ -265,10 +316,10 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 d1=d1, e1=e1, w1=w1,
                 d2=d2, tauRise=tauRise, tauFall=tauFall,
                 e2=e2, w2=w2)
-            plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
+            plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['tarA2'], dt=dt),
+            # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
                 "integrate", neuron_type, "ens2", n, nTrain)
 
-    if 4 not in load:
         print('check ens to ens2 connection')
         stim_func1, stim_func2 = makeSignal(tTrain, dt=dt, seed=0)
         data = go(neuron_type, learn3=True, eRate=0,
@@ -279,20 +330,26 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
             d2=d2, f2=f2,
             e2=e2, w2=w2,
             fTarget=fTarget, fSmooth=fSmooth)
-        plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
-            "integrate", neuron_type, "ens3", 0, 0)
+        plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['tarA2'], dt=dt),
+        # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
+            "integrate", neuron_type, "ens2", -1, 0)
         times = data['times']
-        tarX = data['tarX']
+        tarX = fTarget.filt(data['tarX'], dt=dt)
+        tarAX = data['tarAX']
+        tarA2X = data['tarA2X']
         aEns = f2.filt(data['ens'], dt=dt)
         aEns2 = f2.filt(data['ens2'], dt=dt)
         xhat = np.dot(aEns, d2)
         xhat2 = np.dot(aEns2, d2)
         fig, ax = plt.subplots(figsize=((5.25, 1.5)))
-        ax.plot(data['times'], fTarget.filt(data['tarX'], dt=dt), color='k', linewidth=0.5)
-        ax.plot(data['times'], xhat, linewidth=0.5)
-        ax.plot(data['times'], xhat2, linewidth=0.5)
+        ax.plot(data['times'], tarX, color='k', linewidth=0.5, label='tar')
+        ax.plot(data['times'], tarAX, linewidth=0.5, label='tarA')
+        ax.plot(data['times'], tarA2X, linewidth=0.5, label='tarA2')
+        ax.plot(data['times'], xhat, linewidth=0.5, label='xhat')
+        ax.plot(data['times'], xhat2, linewidth=0.5, label='xhat2')
+        ax.legend()
         ax.set(xlim=((0, tTrain)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
-        fig.savefig(f'plots/integrate/{neuron_type}_check.pdf')
+        fig.savefig(f'plots/integrate/feedforward_{neuron_type}.pdf')
 
     dfs = []
     columns = ('neuron_type', 'n', 'error')
@@ -321,13 +378,17 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         ax.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
         plt.tight_layout()
         fig.savefig(f'plots/integrate/integrate_{neuron_type}_{n}.pdf')
-        fig.savefig(f'plots/integrate/integrate_{neuron_type}_{n}.svg')
+        # fig.savefig(f'plots/integrate/integrate_{neuron_type}_{n}.svg')
 
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error]], columns=columns))
 
+    print(f'observed firing rate range: {np.min(np.max(aEns, axis=0)):.0f} to {np.max(aEns):.0f}Hz')
+    print(f'mean firing rate: {np.mean(aEns, axis=0)}')
+    # print(f'active neurons: {np.count_nonzero(np.sum(aEns, axis=0))}/{nEns}')
+
     return times, inpt, tarX, xhat, dfs
 
-def compare(neuron_types, nTrain=10, tTrain=10, nTest=10, tTest=10, load=[], eRates=[1e-7, 3e-7, 3e-8, 3e-8]):
+def compare(neuron_types, nTrain=20, tTrain=10, nTest=10, tTest=10, load=[], eRates=[1e-7, 3e-7, 3e-8, 3e-8]):
 
     dfsAll = []
     fig, ax = plt.subplots(figsize=((5.25, 1.5)))
@@ -353,4 +414,4 @@ def compare(neuron_types, nTrain=10, tTrain=10, nTest=10, tTest=10, load=[], eRa
     fig.savefig('plots/figures/integrate_barplot.svg')
 
 
-compare([LIF()], eRates=[3e-7], load=[])
+compare([LIF()], nTrain=10, eRates=[3e-7], load=[])
