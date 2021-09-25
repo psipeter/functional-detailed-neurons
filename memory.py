@@ -41,10 +41,10 @@ def makeSignal(t, dt=0.001, value=1.2, seed=0):
     stim_func = lambda t: stim[int(t/dt)]
     return stim_func
 
-def makeSignalCircle(t, dt=0.001, radius=1.0, rms=0.3, seed=0):
+def makeSignalCircle(t, dt=0.001, radius=1, rms=0.1, seed=0):
     phase = np.random.RandomState(seed=seed).uniform(0, 1)
-    stim = nengo.processes.WhiteSignal(period=t, high=3, rms=rms, seed=seed)
-    stim2 = nengo.processes.WhiteSignal(period=t, high=3, rms=rms, seed=50+seed)
+    stim = nengo.processes.WhiteSignal(period=t, high=4, rms=rms, seed=seed)
+    stim2 = nengo.processes.WhiteSignal(period=t, high=4, rms=rms, seed=50+seed)
     with nengo.Network() as model:
         inpt = nengo.Node(stim)
         inpt2 = nengo.Node(stim2)
@@ -65,7 +65,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
     m=Uniform(20, 40), i=Uniform(-0.8, 0.8), stim_func1=lambda t: 0, stim_func2=lambda t: 0,
     fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), f1=DoubleExp(1e-3, 1e-1),
     dB=None, eB=None, wB=None, d0=None, e0=None, w0=None, d1=None, e1=None, w1=None,
-    learnB=False, learn0=False, check0=False, learn1=False,
+    learn0=False, check0=False, learn1=False,
     eRate=1e-6, dRate=3e-6):
 
     with nengo.Network() as model:
@@ -80,7 +80,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         nengo.Connection(inpt2, inpt[1], synapse=None)
         nengo.Connection(inpt, pre, synapse=None)
 
-        if learnB or learn0:
+        if learn0:
             tarA = nengo.Ensemble(nEns, 2, max_rates=m, intercepts=i, neuron_type=ReLu(), seed=seed)
             nengo.Connection(inpt, tarA, synapse=fTarget, seed=seed)
             nengo.Connection(bias, tarA, synapse=fTarget, seed=seed)
@@ -91,8 +91,6 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
             nengo.Connection(tarA.neurons, nodeB[nPre+nEns: nPre+nEns+nEns], synapse=fSmooth)
             nengo.Connection(const, nodeB[-2:], synapse=fTarget)
             nengo.Connection(nodeB, ens.neurons, synapse=None)
-            pTarA = nengo.Probe(tarA.neurons, synapse=None)  
-        if learn0:
             conn0 = nengo.Connection(pre, ens, synapse=fTarget, solver=NoSolver(np.zeros((nPre, nEns)), weights=True))
             node0 = LearningNode(pre, ens, 2, conn=conn0, d=d0, e=e0, w=w0, eRate=eRate, dRate=dRate)
             nengo.Connection(pre.neurons, node0[:nPre], synapse=fTarget)
@@ -100,6 +98,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
             nengo.Connection(tarA.neurons, node0[nPre+nEns: nPre+nEns+nEns], synapse=fSmooth)
             nengo.Connection(inpt, node0[nPre+nEns+nEns:], synapse=None)
             nengo.Connection(node0, ens.neurons, synapse=None)
+            pTarA = nengo.Probe(tarA.neurons, synapse=None)  
         if check0:
             nengo.Connection(bias, ens, synapse=fTarget, solver=NoSolver(wB, weights=True))
             nengo.Connection(pre, ens, synapse=fTarget, solver=NoSolver(w0, weights=True))
@@ -130,9 +129,8 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         sim.run(t, progress_bar=True)
         if isinstance(neuron_type, Pyramidal): nrnReset(sim, model)
 
-    if learnB or learn0:
-        dB, eB, wB = nodeB.d, nodeB.e, nodeB.w    
     if learn0:
+        dB, eB, wB = nodeB.d, nodeB.e, nodeB.w    
         d0, e0, w0 = node0.d, node0.e, node0.w
     if learn1:
         e1, w1 = node1.e, node1.w
@@ -141,9 +139,9 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         times=sim.trange(),
         inpt=sim.data[pInpt],
         ens=sim.data[pEns],
+        tarA=sim.data[pTarA] if learn0 else None,
         ens2=sim.data[pEns2] if learn1 else None,
         ens3=sim.data[pEns3] if learn1 else None,
-        tarA=sim.data[pTarA] if learnB or learn0 else None,
         eB=eB,
         dB=dB,
         wB=wB,
@@ -166,43 +164,25 @@ def goTest(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
         gate = nengo.Node(stim_func2)
         bias = nengo.Ensemble(nPre, 2, max_rates=m, seed=seed)
         pre = nengo.Ensemble(nPre, 2, max_rates=m, seed=seed)
-        pre2 = nengo.Ensemble(nPre, 1, max_rates=m, intercepts=Uniform(0.5, 1), seed=seed)
+        inh = nengo.Ensemble(nPre, 1, max_rates=m, intercepts=Uniform(0.5, 1), seed=seed)
         diff = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=neuron_type, seed=seed)
         ens = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=neuron_type, seed=seed)
 
         nengo.Connection(inpt, pre, synapse=None)
-        nengo.Connection(gate, pre2, synapse=None)
+        nengo.Connection(gate, inh, synapse=None)
         nengo.Connection(pre, diff, synapse=fTarget, solver=NoSolver(w0, weights=True))
-        nengo.Connection(pre2.neurons, diff.neurons, synapse=fTarget, transform=wInh.T)
+        nengo.Connection(inh.neurons, diff.neurons, synapse=fTarget, transform=wInh.T)
         nengo.Connection(diff, ens, synapse=f1, solver=NoSolver(w1, weights=True))
         nengo.Connection(ens, ens, synapse=f1, solver=NoSolver(w1, weights=True))
         nengo.Connection(ens, diff, synapse=f1, solver=NoSolver(-w1, weights=True))
         nengo.Connection(bias, diff, synapse=fTarget, solver=NoSolver(wB, weights=True))
         nengo.Connection(bias, ens, synapse=fTarget, solver=NoSolver(wB, weights=True))
 
-        diff2 = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=nengo.LIF(), seed=seed)
-        ens2 = nengo.Ensemble(nEns, 2, max_rates=m, neuron_type=nengo.LIF(), seed=seed)
-        nengo.Connection(pre, diff2, synapse=fTarget)
-        nengo.Connection(pre2.neurons, diff2.neurons, synapse=fTarget, transform=wInh.T)
-        nengo.Connection(diff2, ens2, synapse=fTarget)
-        nengo.Connection(ens2, ens2, synapse=fTarget)
-        nengo.Connection(ens2, diff2, synapse=fTarget, transform=-1)
-
-        # diff2 = nengo.Ensemble(1000, 2, neuron_type=nengo.LIF(), seed=seed)
-        # ens2 = nengo.Ensemble(1000, 2, neuron_type=nengo.LIF(), seed=seed)
-        # nengo.Connection(inpt, diff2, synapse=0.1)
-        # nengo.Connection(pre2.neurons, diff2.neurons, synapse=0.1, transform=-3e-4*np.ones((nPre, 1000)).T)
-        # nengo.Connection(diff2, ens2, synapse=0.1)
-        # nengo.Connection(ens2, ens2, synapse=0.1)
-        # nengo.Connection(ens2, diff2, synapse=0.1, transform=-1)
-
         pInpt = nengo.Probe(inpt, synapse=None)
         pGate = nengo.Probe(gate, synapse=None)
         pPre = nengo.Probe(pre.neurons, synapse=None)
         pDiff = nengo.Probe(diff.neurons, synapse=None)
         pEns = nengo.Probe(ens.neurons, synapse=None)
-        pDiff2 = nengo.Probe(diff2, synapse=fTarget)
-        pEns2 = nengo.Probe(ens2, synapse=fTarget)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
         if isinstance(neuron_type, Pyramidal): neuron.h.init()
@@ -216,8 +196,6 @@ def goTest(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
         pre=sim.data[pPre],
         diff=sim.data[pDiff],
         ens=sim.data[pEns],
-        diff2=sim.data[pDiff2],
-        ens2=sim.data[pEns2],
     )
 
 
@@ -227,32 +205,15 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
     print(f'Neuron type: {neuron_type}')
 
     if 0 in load:
-        data = np.load(f"data/oscillate_{neuron_type}.npz")
-        dB, eB, wB = data['dB'], data['eB'], data['wB']
-    else:
-        print('train dB, eB, wB from bias to ens')
-        dB, eB, wB = None, None, None
-        for n in range(nTrain):
-            data = go(neuron_type, learnB=True, eRate=eRate,
-                nEns=nEns, t=tTrain, dt=dt,
-                dB=dB, eB=eB, wB=wB,
-                fTarget=fTarget, fSmooth=fSmooth)
-            dB, eB, wB = data['dB'], data['eB'], data['wB']
-            np.savez(f"data/oscillate_{neuron_type}.npz",
-                dB=dB, eB=eB, wB=wB)
-            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
-                "memory", neuron_type, "bias", n, nTrain)
-
-    if 1 in load:
         data = np.load(f"data/memory_{neuron_type}.npz")
         d0, e0, w0 = data['d0'], data['e0'], data['w0']
         dB, eB, wB = data['dB'], data['eB'], data['wB']
     else:
         print('train d0, e0, w0 from pre to diff')
         d0, e0, w0 = None, None, None
+        dB, eB, wB = None, None, None
         for n in range(nTrain):
-            stim_func1 = makeSignal(tTrain, dt=dt, seed=n)
-            stim_func2 = makeSignal(tTrain, dt=dt, seed=100+n)
+            stim_func1, stim_func2 = makeSignalCircle(tTrain, dt=dt, seed=n)
             data = go(neuron_type, learn0=True, eRate=eRate,
                 nEns=nEns, t=tTrain, dt=dt,
                 dB=dB, eB=eB, wB=wB,
@@ -275,7 +236,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
             "memory", neuron_type, "pre", -1, 0)
 
-    if 2 in load:
+    if 1 in load:
         data = np.load(f"data/memory_{neuron_type}.npz")
         d1, tauRise1, tauFall1 = data['d1'], data['tauRise1'], data['tauFall1']
         d2 = -d1
@@ -285,8 +246,6 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         targets = np.zeros((nTrain, int(tTrain/dt), 2))
         spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
-            # stim_func1 = makeSignal(tTrain, dt=dt, seed=n)
-            # stim_func2 = makeSignal(tTrain, dt=dt, seed=100+n)
             stim_func1, stim_func2 = makeSignalCircle(tTrain, dt=dt, seed=n)
             data = go(neuron_type,
                 nEns=nEns, t=tTrain, dt=dt, check0=True,
@@ -315,15 +274,13 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         fig.savefig(f'plots/memory/decode_{neuron_type}.pdf')
     print(f'taus: {tauRise1:.3f}, {tauFall1:.3f}')    
 
-    if 3 in load:
+    if 2 in load:
         data = np.load(f"data/memory_{neuron_type}.npz")
         e1, w1 = data['e1'], data['w1']
     else:
         print('train e1, w1 from diff/ens to ens')
         e1, w1 = None, None
         for n in range(nTrain):
-            # stim_func1 = makeSignal(tTrain, dt=dt, seed=n)
-            # stim_func2 = makeSignal(tTrain, dt=dt, seed=100+n)
             stim_func1, stim_func2 = makeSignalCircle(tTrain, dt=dt, seed=n)
             data = go(neuron_type, learn1=True, eRate=eRate,
                 nEns=nEns, t=tTrain, dt=dt,
@@ -339,8 +296,6 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
                 e1=e1, w1=w1)
             plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
                 "memory", neuron_type, "ens", n, nTrain)
-        # stim_func1 = makeSignal(tTrain, dt=dt, seed=0)
-        # stim_func2 = makeSignal(tTrain, dt=dt, seed=100)
         stim_func1, stim_func2 = makeSignalCircle(tTrain, dt=dt, seed=0)
         data = go(neuron_type, learn1=True, eRate=0,
             nEns=nEns, t=tTrain, dt=dt,
@@ -351,9 +306,9 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
             "memory", neuron_type, "ens", -1, 0)
 
-    print('testing')
-    errors = np.zeros((nTest))
-    errorsNengo = np.zeros((nTest))
+    dfs = []
+    columns = ('neuron_type', 'n', 'error')
+    print('estimating error')
     angles = np.linspace(0, 2*np.pi, nTest+1)
     for n in range(nTest):
         stim_func1, stim_func2 = makeTest(tTest, angle=angles[n], tGate=tGate)
@@ -365,45 +320,54 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
             fTarget=fTarget,
             stim_func1=stim_func1, stim_func2=stim_func2)
         times = data['times']
-        inpt = data['inpt']
-        aDiff = f1.filt(data['diff'], dt=dt)
+        target = data['inpt']
         aEns = f1.filt(data['ens'], dt=dt)
-        xhatDiff = np.dot(aDiff, d1)
-        xhatEns = np.dot(aEns, d1)
-        xhatDiff2 = data['diff2']
-        xhatEns2 = data['ens2']
-        errorEns = rmse(xhatEns, inpt)
-        errorEns2 = rmse(xhatEns2, inpt)
-        errors[n] = errorEns
-        errorsNengo[n] = errorEns2
-        fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, sharex=True)
-        ax2.plot(times, inpt, label='inpt')
-        ax.axvline(tGate)
-        ax.plot(times, xhatDiff, label='diff (online)')
-        ax2.plot(times, xhatEns, label='ens (online)')
-        ax.plot(times, xhatDiff2, label='diff (nengo)')
-        ax2.plot(times, xhatEns2, label='ens (nengo)')
+        xhat = np.dot(aEns, d1)
+        error = rmse(xhat, target)
+        dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error]], columns=columns))
+        
+        fig, ax, = plt.subplots()
+        ax.plot(times, target, label='target')
+        ax.plot(times, xhat, label='xhat')
         ax.legend()
-        ax2.legend()
-        ax2.set(yticks=((-1,1)), xticks=((0, tGate, tGate+tTest)))
-        fig.savefig(f'plots/memory/test{n}.pdf')
+        ax.set(yticks=((-1,1)), xticks=((0, tGate, tGate+tTest)))
+        fig.savefig(f'plots/memory/test_{neuron_type}_{n}.pdf')
 
         fig, ax = plt.subplots()
-        ax.plot(xhatEns[int(tGate/dt):,0], xhatEns[int(tGate/dt):,1], label='ens (online), rmse=%.3f'%errorEns, zorder=1)
-        ax.plot(xhatEns2[int(tGate/dt):,0], xhatEns2[int(tGate/dt):,1], label='ens (nengo), rmse=%.3f'%errorEns2, zorder=1)
-        ax.scatter(inpt[0,0], inpt[0,1], s=8, color='k', label='target', zorder=2)
+        ax.plot(xhat[int(tGate/dt):,0], xhat[int(tGate/dt):,1], label='xhat, rmse=%.3f'%error, zorder=1)
+        ax.scatter(target[0,0], target[0,1], s=8, color='k', label='target', zorder=2)
         ax.legend()
         ax.set(yticks=((-1,1)), xticks=((-1,1)))
-        fig.savefig(f'plots/memory/space{n}.pdf')
+        fig.savefig(f'plots/memory/space_{neuron_type}_{n}.pdf')
         plt.close('all')
 
-    fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, sharey=True)
-    sns.barplot(data=errors, label='mse=%.3f'%np.mean(errors), ax=ax)
-    sns.barplot(data=errorsNengo, label='rmse=%.3f'%np.mean(errorsNengo), ax=ax2)
-    ax.legend()
-    ax2.legend()
-    ax.set(xlabel='online', xticks=(()))
-    ax2.set(xlabel='nengo', xticks=(()))
-    fig.savefig(f'plots/memory/barplot_{neuron_type}.pdf')
+    return times, target, xhat, dfs
 
-run(neuron_type=LIF(), nTrain=10, nTest=10, tTrain=10, tTest=10, tGate=1, eRate=1e-6, load=[0,1,2,3])
+
+def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[]):
+
+    dfsAll = []
+    columns = ('neuron_type', 'n', 'error')
+    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
+    for i, neuron_type in enumerate(neuron_types):
+        times, target, xhat, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
+        dfsAll.extend(dfs)
+        ax.plot(xhat[:,0], xhat[:,1], label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
+    df = pd.concat([df for df in dfsAll], ignore_index=True)
+
+    ax.scatter(target[0,0], target[0,1], s=8, color='k', label='target', zorder=2)
+    ax.set(xticks=((-1,1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
+    ax.legend(loc='upper right', frameon=False)
+    plt.tight_layout()
+    fig.savefig('plots/figures/memory.pdf')
+    fig.savefig('plots/figures/memory.svg')
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
+    sns.barplot(data=df, x='neuron_type', y='error', ax=ax)
+    ax.set(xlabel='', ylim=((0, 0.5)), yticks=((0, 0.5)), ylabel='Error')
+    plt.tight_layout()
+    fig.savefig('plots/figures/memory_barplot.pdf')
+    fig.savefig('plots/figures/memory_barplot.svg')
+
+
+compare([LIF(), Izhikevich(), Wilson()], nTrain=10, nTest=10, load=[])
