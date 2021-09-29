@@ -13,10 +13,10 @@ begintemplate Pyramidal
 	create soma, basal, prox, dist
 
 	proc init() {
-		DA = 0
 		rGeo = $1
 		rCm = $2
 		rR = $3
+		DA = $4
 
 		cao0_ca_ion = 2  /* mM */
 		cai0_ca_ion = 50e-6   /* mM */
@@ -181,6 +181,7 @@ begintemplate Interneuron
 		rGeo = $1
 		rCm = $2
 		rR = $3
+		DA = $4
 		ko0_k_ion = 3.82  /* mM */
 		ki0_k_ion = 140   /* mM */	nseg=1
 
@@ -194,7 +195,7 @@ begintemplate Interneuron
 			insert kdyn
 			insert pas
 			cm = 1.0       /* microF/cm2 */
-			g_pas = 10.00*1e-5  /* mho/cm2 */
+			g_pas = (10.00-2.5*DA)*1e-5  /* mho/cm2 */
 			e_pas = -70
 			Ra = 150*rR         /* ohm-cm */
 		}
@@ -209,7 +210,7 @@ begintemplate Interneuron
 			insert kdyn
 			insert pas
 			cm = 1.0*rCm       /* microF/cm2 */
-			g_pas = 10.00*1e-5  /* mho/cm2 */
+			g_pas = (10.00-2.5*DA)*1e-5  /* mho/cm2 */
 			e_pas = -70
 			Ra = 150*rR         /* ohm-cm */
 		}

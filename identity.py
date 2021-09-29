@@ -10,7 +10,7 @@ from nengo.utils.numpy import rmse
 
 from nengolib import Lowpass, DoubleExp
 
-from neuron_types import LIF, Izhikevich, Wilson, Pyramidal, nrnReset
+from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
 from utils import LearningNode, trainDF
 from plotter import plotActivities
 
@@ -34,7 +34,7 @@ def makeSignal(t, dt=0.001, value=1, seed=0):
         stim = u * value / np.max(u)
         if seed%2==0: stim*=-1
     else:
-        stim = u / np.min(u)
+        stim = u * value / np.min(u)
         if seed%2==0: stim*=-1
     stim_func = lambda t: stim[int(t/dt)]
     return stim_func
@@ -92,10 +92,9 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         pTarX2 = nengo.Probe(tarX2, synapse=None)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
-        if isinstance(neuron_type, Pyramidal): neuron.h.init()  # broken??
-        # if isinstance(neuron_type, Pyramidal): neuron.h.__init__()
+        if isinstance(neuron_type, NEURON): neuron.h.init()
         sim.run(t, progress_bar=True)
-        if isinstance(neuron_type, Pyramidal): nrnReset(sim, model)
+        if isinstance(neuron_type, NEURON): nrnReset(sim, model)
     
     if learn0:
         d0, e0, w0 = node0.d, node0.e, node0.w
@@ -132,7 +131,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         print('train d0, e0, w0 from pre to ens1')
         d0, e0, w0 = None, None, None
         for n in range(nTrain):
-            stim_func = makeSignal(tTrain, value=1.4, dt=dt, seed=n)
+            stim_func = makeSignal(tTrain, value=1.3, dt=dt, seed=n)
             data = go(neuron_type, learn0=True, eRate=eRate,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -151,7 +150,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         targets = np.zeros((nTrain, int(tTrain/dt), 1))
         spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
-            stim_func = makeSignal(tTrain, value=1.4, dt=dt, seed=n)
+            stim_func = makeSignal(tTrain, value=1.3, dt=dt, seed=n)
             data = go(neuron_type,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -174,7 +173,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         e1, w1 = None, None
         # d1, e1, w1 = None, None, None
         for n in range(nTrain):
-            stim_func = makeSignal(tTrain, value=1.4, dt=dt, seed=n)
+            stim_func = makeSignal(tTrain, value=1.3, dt=dt, seed=n)
             data = go(neuron_type, learn1=True, eRate=eRate,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -197,7 +196,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         targets = np.zeros((nTrain, int(tTrain/dt), 1))
         spikes = np.zeros((nTrain, int(tTrain/dt), nEns))
         for n in range(nTrain):
-            stim_func = makeSignal(tTrain, value=1.4, dt=dt, seed=n)
+            stim_func = makeSignal(tTrain, value=1.3, dt=dt, seed=n)
             data = go(neuron_type,
                 nEns=nEns, t=tTrain, dt=dt,
                 d0=d0, e0=e0, w0=w0,
@@ -235,6 +234,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         error2 = rmse(xhat2, tarX2)
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error1, error2]], columns=columns))
 
+    print(f'{neuron_type} observed firing rate range: {np.min(np.max(aEns2, axis=0)):.0f} to {np.max(aEns2):.0f}Hz')
     return times, tarX1, tarX2, xhat1, xhat2, dfs
 
 def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[]):
@@ -266,9 +266,9 @@ def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
 
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
     sns.barplot(data=df, x='neuron_type', y='error2', ax=ax)
-    ax.set(xlabel='', ylim=((0, 0.04)), yticks=((0, 0.04)), ylabel='Error')
+    ax.set(xlabel='', ylim=((0, 0.1)), yticks=((0, 0.1)), ylabel='Error')
     plt.tight_layout()
     fig.savefig('plots/figures/identity_barplot.pdf')
     fig.savefig('plots/figures/identity_barplot.svg')
 
-compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[0,1,2,3])
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])

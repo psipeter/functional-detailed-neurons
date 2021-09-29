@@ -11,7 +11,7 @@ from nengolib.stats import ball, sphere
 
 from utils import LearningNode
 from plotter import plotActivities
-from neuron_types import LIF, Izhikevich, Wilson, Pyramidal, nrnReset
+from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
 
 import neuron
 import matplotlib.pyplot as plt
@@ -71,9 +71,9 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=1,
         pTarA = nengo.Probe(tarA.neurons, synapse=None)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
-        if isinstance(neuron_type, Pyramidal): neuron.h.init()
+        if isinstance(neuron_type, NEURON): neuron.h.init()
         sim.run(t, progress_bar=True)
-        if isinstance(neuron_type, Pyramidal): nrnReset(sim, model)
+        if isinstance(neuron_type, NEURON): nrnReset(sim, model)
     
     if learn:
         d, e, w = node.d, node.e, node.w
@@ -226,6 +226,8 @@ def voltageTrace(neuron_type, tTest=1, dt=1e-3,
     ax.set(xlabel='time (s)')
     fig.savefig(f'plots/tuning_curve/{neuron_type}/voltage.pdf')
 
-ReLuDistribution()
-# voltageTrace(Pyramidal())
-# compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=True)
+# ReLuDistribution()
+# voltageTrace(NEURON('Pyramidal'))
+# compare([NEURON('Interneuron')], eRates=[1e-8], load=False)
+# compare([NEURON('Pyramidal')], eRates=[1e-7], load=False)
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=False)

@@ -10,7 +10,7 @@ from nengo.utils.numpy import rmse
 
 from nengolib import Lowpass, DoubleExp
 
-from neuron_types import LIF, Izhikevich, Wilson, Pyramidal, nrnReset
+from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
 from utils import LearningNode, trainDF
 from plotter import plotActivities
 
@@ -19,10 +19,11 @@ import neuron
 import matplotlib.pyplot as plt
 
 import seaborn as sns
-sns.set(context='paper', style='white', font='CMU Serif')
+sns.set(context='paper', style='white', font='CMU Serif',
+    rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
 
-def makeSignal(t, dt=0.001, value=1, seed=0, thr=0.9):
+def makeSignal(t, dt=0.001, value=1, seed=0, thr=0.9, rms=0.0):
     done = False
     rng = np.random.RandomState(seed=seed)
     while not done:
@@ -45,11 +46,10 @@ def makeSignal(t, dt=0.001, value=1, seed=0, thr=0.9):
             dim2 = u2 * value / np.max(u2)
         else:
             dim2 = u2 * value / np.min(u2)
-
         multiplied = dim1 * dim2
-        if seed%2==0 and np.min(multiplied) < -value*thr:
+        if seed%2==0 and np.min(multiplied) < -value*thr and np.sqrt(np.mean(np.square(multiplied)))>rms:
             done = True
-        if seed%2==1 and np.max(multiplied) > value*thr:
+        if seed%2==1 and np.max(multiplied) > value*thr and np.sqrt(np.mean(np.square(multiplied)))>rms:
             done = True
     stim_func1 = lambda t: dim1[int(t/dt)]
     stim_func2 = lambda t: dim2[int(t/dt)]
@@ -114,9 +114,9 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         pTarX2 = nengo.Probe(tarX2, synapse=None)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
-        if isinstance(neuron_type, Pyramidal): neuron.h.init()
+        if isinstance(neuron_type, NEURON): neuron.h.init()
         sim.run(t, progress_bar=True)
-        if isinstance(neuron_type, Pyramidal): nrnReset(sim, model)
+        if isinstance(neuron_type, NEURON): nrnReset(sim, model)
     
     if learn0:
         d0, e0, w0 = node0.d, node0.e, node0.w
@@ -187,6 +187,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         np.savez(f"data/multiply_{neuron_type}.npz",
             d0=d0, e0=e0, w0=w0,
             d1=d1, tauRise1=tauRise1, tauFall1=tauFall1)
+    print(f"taus: {tauRise1:.4f}, {tauFall1:.4f}")
 
     if 2 in load:
         data = np.load(f"data/multiply_{neuron_type}.npz")
@@ -260,6 +261,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         error2 = rmse(xhat2, tarX2)
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error1, error2]], columns=columns))
 
+    print(f'{neuron_type} observed firing rate range: {np.min(np.max(aEns2, axis=0)):.0f} to {np.max(aEns2):.0f}Hz')
     return times, tarX1, tarX2, xhat1, xhat2, dfs
 
 def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[]):
@@ -296,5 +298,4 @@ def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
     fig.savefig('plots/figures/multiply_barplot.pdf')
     fig.savefig('plots/figures/multiply_barplot.svg')
 
-# compare([Pyramidal()], load=[])
-compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[0,1,2,3])
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])

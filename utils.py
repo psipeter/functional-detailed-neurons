@@ -122,7 +122,7 @@ def trainD(spikes, targets, nTrain, f, dt=0.001, reg=1e-3):
     d, _ = LstsqL2(reg=reg)(A, Y)
     return d
 
-def fitSinusoid(xhat, neuron_type, tTrans=0, muFreq=2*np.pi, sigmaFreq=1, base=True, mag=True, dt=1e-3, seed=0, evals=2000):
+def fitSinusoid(xhat, neuron_type, tTrans=0, muFreq=2*np.pi, sigmaFreq=1, base=True, mag=True, dt=1e-3, seed=0, evals=3000):
     np.savez_compressed(f'data/oscillate_{neuron_type}_xhat.npz', xhat=xhat)
     hyperparams = {}
     hyperparams['neuron_type'] = neuron_type
@@ -132,8 +132,8 @@ def fitSinusoid(xhat, neuron_type, tTrans=0, muFreq=2*np.pi, sigmaFreq=1, base=T
     hyperparams['phase'] = hp.uniform('phase', 0, 1)
 #     hyperparams['phase'] = hp.choice('phase', [0, 0.2, 0.4, 0.6, 0.8])
 #     hyperparams['freq'] = hp.uniform('freq', fMin*freq, fMax*freq)
-    hyperparams['mag'] = hp.choice('mag', np.arange(0.5, 3, 0.05)) if mag else 1
-    hyperparams['base'] = hp.choice('base', np.arange(-0.2, 0.2, 0.05)) if base else 0
+    hyperparams['mag'] = hp.choice('mag', np.arange(0.5, 1.5, 0.05)) if mag else 1
+    hyperparams['base'] = hp.choice('base', np.arange(-0.3, 0.3, 0.05)) if base else 0
 #     hyperparams['mag'] = hp.uniform('mag', 0.7, 1.0)
 #     hyperparams['base'] = hp.uniform('base', -0.2, 0.2)
 
@@ -170,35 +170,3 @@ def fitSinusoid(xhat, neuron_type, tTrans=0, muFreq=2*np.pi, sigmaFreq=1, base=T
     base = best['result']['base']
         
     return loss, loss2, freq, phase, mag, base
-
-
-def getGainLIF(nEns, max_rates, test=False):
-    neuron = nengo.LIF()
-    rates = np.array(max_rates.sample(nEns, rng=np.random.RandomState(seed=0)))
-    ints = np.zeros_like(rates)
-    bias = np.zeros_like(rates)
-    # Solve LIFRate's step_math equation for the input current J required to achieve these rates
-    # J = np.exp(-(neuron.amplitude / rates - neuron.tau_ref) / neuron.tau_rc)
-    J = 1.0 / (1 - np.exp((neuron.tau_ref - (1.0 / rates)) / neuron.tau_rc))
-    # assume zero bias, and therefore zero intercept, and compute the gains necessary to achieve these currents J
-    # J = gain * X + 0, where X is dot(x, e), the dot product between the input vector and the neuron's encoder
-    # the maximum firing rate occurs at X=1, so solve for gain
-    gain = J 
-    if test:
-        # test in a small network
-        with nengo.Network() as model:
-            inpt = nengo.Node(lambda t: np.sin(t))
-            # ens = nengo.Ensemble(nEns, 1, neuron_type=neuron, max_rates=rates, intercepts=ints)
-            ens = nengo.Ensemble(nEns, 1, neuron_type=neuron, gain=gain, bias=bias)
-            nengo.Connection(inpt, ens, synapse=None)
-            pX = nengo.Probe(ens, synapse=0.1)
-            pA = nengo.Probe(ens.neurons, synapse=None)
-        with nengo.Simulator(model, progress_bar=False) as sim:
-            sim.run(10, progress_bar=False)
-        fig, ax = plt.subplots()
-        ax.plot(sim.trange(), sim.data[pX])
-        fig.savefig('plots/oscillate/testGainLIF.pdf')
-        fig, ax = plt.subplots()
-        ax.plot(sim.trange(), Lowpass(0.1).filt(sim.data[pA])[:,:10])
-        fig.savefig('plots/oscillate/testGainLIF_spikes.pdf')
-    return gain, bias

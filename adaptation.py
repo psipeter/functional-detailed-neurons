@@ -11,7 +11,7 @@ from nengo.utils.numpy import rmse
 from nengolib import Lowpass, DoubleExp
 
 from utils import LearningNode, trainDF, trainD
-from neuron_types import LIF, Izhikevich, Wilson, Pyramidal, nrnReset
+from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
 from plotter import plotActivities
 
 import neuron
@@ -75,9 +75,9 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         pTarX = nengo.Probe(tarX, synapse=None)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
-        if isinstance(neuron_type, Pyramidal): neuron.h.init()
+        if isinstance(neuron_type, NEURON): neuron.h.init()
         sim.run(t, progress_bar=True)
-        if isinstance(neuron_type, Pyramidal): nrnReset(sim, model)
+        if isinstance(neuron_type, NEURON): nrnReset(sim, model)
     
     if learn:
         d, e, w = node.d, node.e, node.w
@@ -241,4 +241,4 @@ def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
     # fig.savefig('plots/figures/adaptation_barplot.pdf')
     # fig.savefig('plots/figures/adaptation_barplot.svg')
 
-compare([LIF(), Izhikevich(), Wilson(), Pyramidal()], load=[0,1,2,3])
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])

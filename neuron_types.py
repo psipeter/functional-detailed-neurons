@@ -9,6 +9,14 @@ from nengo.builder.connection import BuiltConnection
 from nengolib.signal import LinearSystem
 import warnings
 
+class AMPA(nengo.synapses.Synapse):
+	def __init__(self): super().__init__()
+        
+class GABA(nengo.synapses.Synapse):
+	def __init__(self): super().__init__()
+
+class NMDA(nengo.synapses.Synapse):
+	def __init__(self): super().__init__()
 
 class LIF(NeuronType):
 
@@ -156,7 +164,7 @@ class Wilson(NeuronType):
 
 
 @Builder.register(Wilson)
-def build_wilsonneuron(model, neuron_type, neurons):
+def build_wilson(model, neuron_type, neurons):
 	model.sig[neurons]['voltage'] = Signal(neuron_type.V0*np.ones(neurons.size_in), name="%s.voltage" % neurons)
 	model.sig[neurons]['recovery'] = Signal(neuron_type.R0*np.ones(neurons.size_in), name="%s.recovery" % neurons)
 	model.sig[neurons]['conductance'] = Signal(neuron_type.H0*np.ones(neurons.size_in), name="%s.conductance" % neurons)
@@ -166,7 +174,7 @@ def build_wilsonneuron(model, neuron_type, neurons):
 
 
 
-class Pyramidal(NeuronType):
+class NEURON(NeuronType):
 
 	'''
 	Reproduced from Durstewitz, Seamans, and Sejnowski "Dopamine-Mediated Stabilization of Delay-Period Activity in a Network Model of Prefrontal Cortex (2000)"
@@ -174,16 +182,18 @@ class Pyramidal(NeuronType):
 	and six ionic currents (two for sodium, three for potassium, and one for calcium).
 	The Durstewitz reconstruction accurately reproduces electrophysiological recordings from layer-V intrinsically-bursting pyramidal neurons in rat PFC,
 	cells that are known to be active during the delay period of working memory tasks.
+	Also included is an inhibitory interneuron that includes two compartments (soma, dendrites), similar channels, and similar validation 
 	This neuron model is implemented in NEURON and uses conductance-based synapses, distributed randomly on the three dendritic compartments.
 	'''
 
 	probeable = ('spikes', 'voltage')
 	threshold = NumberParam('threshold')  # spike threshold
 	dtNeuron = NumberParam('dtNeuron')  # time constant
-	DA = NumberParam('DA')  # time constant
+	DA = NumberParam('DA')
 
-	def __init__(self, threshold=-40, DA=0, dtNeuron=0.1):
-		super(Pyramidal, self).__init__()
+	def __init__(self, cell_type, threshold=-40, DA=0, dtNeuron=0.1):
+		super(NEURON, self).__init__()
+		self.cell_type = cell_type
 		self.threshold = threshold
 		self.dtNeuron = dtNeuron
 		self.DA = DA
@@ -205,12 +215,12 @@ class Pyramidal(NeuronType):
 			spk_before[n] = list(spk_after[n])
 
 
-@Builder.register(Pyramidal)
-def build_pyramidalneuron(model, neuron_type, neurons):
+@Builder.register(NEURON)
+def build_hoc(model, neuron_type, neurons):
 	model.sig[neurons]['voltage'] = Signal(np.zeros(neurons.size_in), name="%s.voltage"%neurons)
 	neuron.h.load_file('stdrun.hoc')
 	neuron.h.load_file('NEURON/cells.hoc')
-	neuronop = SimPyramidal(
+	neuronop = SimNEURON(
 		neuron_type=neuron_type,
 		n_neurons=neurons.size_in,
 		J=model.sig[neurons]['in'],
@@ -222,10 +232,10 @@ def build_pyramidalneuron(model, neuron_type, neurons):
 
 # The operator object for Nengo, which stores lists of NEURON cells, spike events, and voltages,
 # and transmits these lists to the neuron object above at every timestep
-class SimPyramidal(Operator):
+class SimNEURON(Operator):
 
 	def __init__(self, neuron_type, n_neurons, J, output, states, dt):
-		super(SimPyramidal, self).__init__()
+		super(SimNEURON, self).__init__()
 		self.neuron_type = neuron_type
 		rng = np.random.RandomState(seed=0)
 		rGeos = rng.normal(1, 0.2, size=(n_neurons,))
@@ -234,7 +244,10 @@ class SimPyramidal(Operator):
 		v0s = rng.uniform(-80, -60, size=(n_neurons, ))
 		self.neurons = []
 		for n in range(n_neurons):
-			self.neurons.append(neuron.h.Pyramidal(rGeos[n], rCms[n], rRs[n]))
+			if self.neuron_type.cell_type=='Pyramidal':
+				self.neurons.append(neuron.h.Pyramidal(rGeos[n], rCms[n], rRs[n], self.neuron_type.DA))
+			elif self.neuron_type.cell_type=='Interneuron':
+				self.neurons.append(neuron.h.Interneuron(rGeos[n], rCms[n], rRs[n], self.neuron_type.DA))
 		self.reads = [states[0], J]
 		self.sets = [output, states[1]]
 		self.updates = []
@@ -315,19 +328,20 @@ class NrnConnect(Operator):
 # Overrides Nengo's default build_connection, so we include a statement to build normally if the ensemble is not from NEUROn
 @Builder.register(nengo.Connection)
 def build_connection(model, conn):
-	if isinstance(conn.post_obj, nengo.Ensemble) and isinstance(conn.post_obj.neuron_type, Pyramidal):
+	if isinstance(conn.post_obj, nengo.Ensemble) and isinstance(conn.post_obj.neuron_type, NEURON):
 		assert isinstance(conn.pre_obj, nengo.Ensemble)
-		assert 'spikes' in conn.pre_obj.neuron_type.probeable
-		assert isinstance(conn.synapse, LinearSystem)
 		assert isinstance(conn.solver, nengo.solvers.NoSolver)
-
+		assert 'spikes' in conn.pre_obj.neuron_type.probeable
 		post_obj = conn.post_obj
 		pre_obj = conn.pre_obj
 		model.sig[conn]['in'] = model.sig[pre_obj]['out']
-		# if isinstance(conn.synapse, AMPA): taus = "AMPA"
-		# elif isinstance(conn.synapse, GABA): taus = "GABA"
-		# elif isinstance(conn.synapse, NMDA): taus = "NMDA"
-		taus = -1.0/np.array(conn.synapse.poles) * 1000  # convert to ms
+		special_synapse = False
+		if isinstance(conn.synapse, AMPA): special_synapse = "AMPA"  # special named synapses
+		elif isinstance(conn.synapse, GABA): special_synapse = "GABA"
+		elif isinstance(conn.synapse, NMDA): special_synapse = "NMDA"
+		else:
+			assert isinstance(conn.synapse, LinearSystem)
+			taus = -1.0/np.array(conn.synapse.poles) * 1000  # normal synapse
 
 		with warnings.catch_warnings():
 			warnings.simplefilter("ignore")        
@@ -342,18 +356,21 @@ def build_connection(model, conn):
 		for post in range(post_obj.n_neurons):
 			nrn = model.params[post_obj.neurons][post]
 			for pre in range(pre_obj.n_neurons):
-				if conn.compartments[pre, post] == 0:
-					loc = nrn.prox(conn.locations[pre, post])
-				elif conn.compartments[pre, post] == 1:
-					loc = nrn.dist(conn.locations[pre, post])
-				else:
-					loc = nrn.basal(conn.locations[pre, post])
-				# if type(taus) == str:
-				# 	if taus == "AMPA": syn = neuron.h.ampa(loc)
-				# 	elif taus == "GABA": syn = neuron.h.gaba(loc)
-				# 	elif taus == "NMDA": syn = neuron.h.nmda(loc)
-				# 	else: raise "synapse %s not understood"%taus
-				if len(taus) == 1:
+				if conn.post_obj.neuron_type.cell_type=='Pyramidal':
+					if conn.compartments[pre, post] == 0:
+						loc = nrn.prox(conn.locations[pre, post])
+					elif conn.compartments[pre, post] == 1:
+						loc = nrn.dist(conn.locations[pre, post])
+					else:
+						loc = nrn.basal(conn.locations[pre, post])
+				elif conn.post_obj.neuron_type.cell_type=='Interneuron':
+					loc = nrn.dendrite(conn.locations[pre, post])
+				if special_synapse:
+					if special_synapse == "AMPA": syn = neuron.h.ampa(loc)
+					elif special_synapse == "GABA": syn = neuron.h.gaba(loc)
+					elif special_synapse == "NMDA": syn = neuron.h.nmda(loc)
+					syn.DA = conn.post_obj.neuron_type.DA
+				elif len(taus) == 1:
 					syn = neuron.h.ExpSyn(loc)
 					syn.tau = taus[0]
 				elif len(taus) == 2:
@@ -390,7 +407,7 @@ def nrnReset(sim, model):
 		if type(key) == nengo.ensemble.Neurons:
 			del(sim.model.params[key])
 	for op in sim.model.operators:
-		if isinstance(op, SimPyramidal):
+		if isinstance(op, SimNEURON):
 			for v_rec in op.v_recs:
 				v_rec.play_remove()
 			for spk_vec in op.spk_vecs:

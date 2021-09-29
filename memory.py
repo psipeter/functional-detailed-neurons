@@ -12,7 +12,7 @@ from nengolib import Lowpass, DoubleExp
 from nengolib.synapses import ss2sim
 from nengolib.signal import LinearSystem, s
 
-from neuron_types import LIF, Izhikevich, Wilson, Pyramidal, nrnReset
+from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
 from utils import LearningNode, trainDF, fitSinusoid
 from plotter import plotActivities
 
@@ -23,23 +23,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
-
-def makeSignal(t, dt=0.001, value=1.2, seed=0):
-    stim = nengo.processes.WhiteSignal(period=t, high=1, rms=0.5, seed=seed)
-    with nengo.Network() as model:
-        inpt = nengo.Node(stim)
-        probe = nengo.Probe(inpt, synapse=None)
-    with nengo.Simulator(model, progress_bar=False, dt=dt) as sim:
-        sim.run(t+dt, progress_bar=False)
-    u = sim.data[probe]
-    if np.abs(np.max(u)) > np.abs(np.min(u)):
-        stim = u * value / np.max(u)
-        if seed%2==0: stim*=-1
-    else:
-        stim = u * value / np.min(u)
-        if seed%2==0: stim*=-1
-    stim_func = lambda t: stim[int(t/dt)]
-    return stim_func
 
 def makeSignalCircle(t, dt=0.001, radius=1, rms=0.1, seed=0):
     phase = np.random.RandomState(seed=seed).uniform(0, 1)
@@ -125,9 +108,9 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
         pEns = nengo.Probe(ens.neurons, synapse=None)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
-        if isinstance(neuron_type, Pyramidal): neuron.h.init()
+        if isinstance(neuron_type, NEURON): neuron.h.init()
         sim.run(t, progress_bar=True)
-        if isinstance(neuron_type, Pyramidal): nrnReset(sim, model)
+        if isinstance(neuron_type, NEURON): nrnReset(sim, model)
 
     if learn0:
         dB, eB, wB = nodeB.d, nodeB.e, nodeB.w    
@@ -185,9 +168,9 @@ def goTest(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=100,
         pEns = nengo.Probe(ens.neurons, synapse=None)
 
     with nengo.Simulator(model, dt=dt, progress_bar=False) as sim:
-        if isinstance(neuron_type, Pyramidal): neuron.h.init()
+        if isinstance(neuron_type, NEURON): neuron.h.init()
         sim.run(tGate+t, progress_bar=True)
-        if isinstance(neuron_type, Pyramidal): nrnReset(sim, model)
+        if isinstance(neuron_type, NEURON): nrnReset(sim, model)
 
     return dict(
         times=sim.trange(),
@@ -226,8 +209,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
                 d0=d0, e0=e0, w0=w0)
             plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
                 "memory", neuron_type, "pre", n, nTrain)
-        stim_func1 = makeSignal(tTrain, dt=dt, seed=0)
-        stim_func2 = makeSignal(tTrain, dt=dt, seed=100)
+        stim_func1, stim_func2 = makeSignalCircle(tTrain, dt=dt, seed=0)
         data = go(neuron_type, learn0=True, eRate=0,
             nEns=nEns, t=tTrain, dt=dt,
             dB=dB, eB=eB, wB=wB,
@@ -335,7 +317,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
 
         fig, ax = plt.subplots()
         ax.plot(xhat[int(tGate/dt):,0], xhat[int(tGate/dt):,1], label='xhat, rmse=%.3f'%error, zorder=1)
-        ax.scatter(target[0,0], target[0,1], s=8, color='k', label='target', zorder=2)
+        ax.scatter(target[0,0], target[0,1], s=10, color='k', label='target', zorder=2)
         ax.legend()
         ax.set(yticks=((-1,1)), xticks=((-1,1)))
         fig.savefig(f'plots/memory/space_{neuron_type}_{n}.pdf')
@@ -348,21 +330,22 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
 
     dfsAll = []
     columns = ('neuron_type', 'n', 'error')
-    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
+    fig, ax = plt.subplots(figsize=((1.5, 1.5)))
     for i, neuron_type in enumerate(neuron_types):
         times, target, xhat, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
         dfsAll.extend(dfs)
-        ax.plot(xhat[:,0], xhat[:,1], label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
+        ax.plot(xhat[:,0], xhat[:,1], label=f"{str(neuron_type)[:-2]}", linewidth=0.5, zorder=1)
     df = pd.concat([df for df in dfsAll], ignore_index=True)
 
-    ax.scatter(target[0,0], target[0,1], s=8, color='k', label='target', zorder=2)
-    ax.set(xticks=((-1,1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
-    ax.legend(loc='upper right', frameon=False)
+    ax.plot(np.sin(times), np.cos(times), color='gray', alpha=0.5, linewidth=0.5, linestyle='--', zorder=1)
+    ax.scatter(target[0,0], target[0,1], s=10, color='k', alpha=0.5, label='target', zorder=2)
+    ax.set(xticks=((-1,1)), yticks=((-1, 1)), xlabel=r"$\mathbf{x}_0(t)$", ylabel=r"$\mathbf{x}_1(t)$")
+    # ax.legend(loc='upper right', frameon=False)
     plt.tight_layout()
     fig.savefig('plots/figures/memory.pdf')
     fig.savefig('plots/figures/memory.svg')
 
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((3.75, 1.5)))
     sns.barplot(data=df, x='neuron_type', y='error', ax=ax)
     ax.set(xlabel='', ylim=((0, 0.5)), yticks=((0, 0.5)), ylabel='Error')
     plt.tight_layout()
@@ -370,4 +353,4 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
     fig.savefig('plots/figures/memory_barplot.svg')
 
 
-compare([LIF(), Izhikevich(), Wilson()], nTrain=10, nTest=10, load=[])
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])
