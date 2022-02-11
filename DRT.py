@@ -44,7 +44,7 @@ class GateInput():
         return [0,0] if t<self.tGate else [1,1]
 
 
-def networkBaseline(seed, cueInpt, gateInpt, cues, nPre=1000, ):
+def networkBaseline(seed, cueInpt, gateInpt, cues):
     eInh = Choice([[1,1]])
     ePre = sphere.sample(nPre, 2, rng=np.random.RandomState(seed=seed))
     eTarget = sphere.sample(nEns, 2, rng=np.random.RandomState(seed=seed))
@@ -181,8 +181,8 @@ def makeSignalCircle(t, rad=1, rms=0.2, seed=0):
 
 def goTrain(trainDA, t=10, seed=0,
     stim_func1=lambda t: 0, stim_func2=lambda t: 0, stim_func3=lambda t: [0, 0] if t<3 else [1,1], 
-    dB=None, eB=None, wB=None, d0=None, e0=None, w0=None, d1=None, e1=None, w1=None, dI=None, eI=None, wI=None, d2=None, e2=None, w2=None,
-    learn0=False, check0=False, learn1=False, check1=False, learn2=False, check2=False, learn3=False, check3=False):
+    dB=None, eB=None, wB=None, d0=None, e0=None, w0=None, d1=None, e1=None, w1=None, dI=None, eI=None, wI=None,
+    learn0=False, check0=False, learn1=False, check1=False, learn2=False, check2=False):
 
     ePre = sphere.sample(nPre, 2, rng=np.random.RandomState(seed=seed))
     eTarget = sphere.sample(nEns, 2, rng=np.random.RandomState(seed=seed))
@@ -286,45 +286,6 @@ def goTrain(trainDA, t=10, seed=0,
             pInh = nengo.Probe(inh.neurons, synapse=None)
             pTarInh = nengo.Probe(tarInh.neurons, synapse=None)
 
-        if learn3:
-            # could also switch pre2 to ens4, using NMDA() synapses and w1
-            pre2 = nengo.Ensemble(nPre, 2, radius=r, max_rates=m, encoders=ePre, seed=seed)
-            ens2 = nengo.Ensemble(nEns, 2, neuron_type=NEURON('Pyramidal', DA=trainDA), seed=seed)
-            ens3 = nengo.Ensemble(nEns, 2, neuron_type=NEURON('Pyramidal', DA=trainDA), seed=seed)  # target activities
-            nengo.Connection(bias, ens, synapse=AMPA(), solver=NoSolver(wB, weights=True))
-            nengo.Connection(bias, ens2, synapse=AMPA(), solver=NoSolver(wB, weights=True))
-            nengo.Connection(bias, ens3, synapse=AMPA(), solver=NoSolver(wB, weights=True))
-            nengo.Connection(inpt, pre2, synapse=fNMDA, transform=-1)
-            nengo.Connection(pre, ens, synapse=AMPA(), solver=NoSolver(w0, weights=True))
-            nengo.Connection(pre, ens2, synapse=AMPA(), solver=NoSolver(w0, weights=True))
-            nengo.Connection(pre, ens3, synapse=AMPA(), solver=NoSolver(w0, weights=True))  # positive signal to target
-            nengo.Connection(pre2, ens3, synapse=AMPA(), solver=NoSolver(w0, weights=True))  # negative delayed signal to target
-            conn2 = nengo.Connection(ens, ens2, synapse=NMDA(), solver=NoSolver(np.zeros((nEns, nEns)), weights=True))  # learn negative
-            node2 = LearningNode(ens, ens2, 2, conn=conn2, d=d2, e=e2, w=w2, eRate=3e-9, dRate=0)
-            nengo.Connection(ens.neurons, node2[:nEns], synapse=fNMDA)
-            nengo.Connection(ens2.neurons, node2[nEns: 2*nEns], synapse=fSmooth)
-            nengo.Connection(ens3.neurons, node2[2*nEns: 3*nEns], synapse=fSmooth)
-            nengo.Connection(node2, ens2.neurons, synapse=None)
-            pEns2 = nengo.Probe(ens2.neurons, synapse=None)
-            pEns3 = nengo.Probe(ens3.neurons, synapse=None)
-
-        if check3:
-            pre2 = nengo.Ensemble(nPre, 2, radius=r, max_rates=m, encoders=ePre, seed=seed)
-            ens2 = nengo.Ensemble(nEns, 2, neuron_type=NEURON('Pyramidal', DA=trainDA), seed=seed)
-            ens3 = nengo.Ensemble(nEns, 2, neuron_type=NEURON('Pyramidal', DA=trainDA), seed=seed)
-            nengo.Connection(bias, ens, synapse=AMPA(), solver=NoSolver(wB, weights=True))
-            nengo.Connection(bias, ens2, synapse=AMPA(), solver=NoSolver(wB, weights=True))
-            nengo.Connection(bias, ens3, synapse=AMPA(), solver=NoSolver(wB, weights=True))
-            nengo.Connection(inpt, pre2, synapse=fNMDA, transform=-1)
-            nengo.Connection(pre, ens, synapse=AMPA(), solver=NoSolver(w0, weights=True))
-            nengo.Connection(pre, ens2, synapse=AMPA(), solver=NoSolver(w0, weights=True))
-            nengo.Connection(pre, ens3, synapse=AMPA(), solver=NoSolver(w0, weights=True))  # positive signal to target
-            nengo.Connection(pre2, ens3, synapse=AMPA(), solver=NoSolver(w0, weights=True))  # negative delayed signal to target
-            conn2 = nengo.Connection(ens, ens2, synapse=NMDA(), solver=NoSolver(w2, weights=True))  # learn negative
-            pEns2 = nengo.Probe(ens2.neurons, synapse=None)
-            pEns3 = nengo.Probe(ens3.neurons, synapse=None)
-
-
         pInpt = nengo.Probe(inpt, synapse=None)
         pEns = nengo.Probe(ens.neurons, synapse=None)
 
@@ -340,8 +301,6 @@ def goTrain(trainDA, t=10, seed=0,
         e1, w1 = node1.e, node1.w
     if learn2:
         dI, eI, wI = nodeI.d, nodeI.e, nodeI.w
-    if learn3:
-        e2, w2 = node2.e, node2.w
 
     return dict(
         times=sim.trange(),
@@ -364,8 +323,6 @@ def goTrain(trainDA, t=10, seed=0,
         dI=dI,
         eI=eI,
         wI=wI,
-        e2=e2,
-        w2=w2,
     )
 
 
@@ -401,7 +358,6 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
     if 1 in load:
         data = np.load(f"data/DRT_trainDA{trainDA}_seed{seed}.npz")
         d1 = data['d1']
-        d2 = data['d2']
     else:
         print('train d1 for diff/ens to compute identity')
         targets = np.zeros((nTrain, int(tTrain/dt), 2))
@@ -413,13 +369,12 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
                 w0=w0)
             targets[n] = fNMDA.filt(fAMPA.filt(data['inpt'], dt=dt), dt=dt)
             spikes[n] = data['ens']
-        # d1 = trainD(spikes, targets, nTrain, fNMDA, dt=dt)
-        d1 = np.zeros((nEns, 2))
-        d2 = -d1
+        d1 = trainD(spikes, targets, nTrain, fNMDA, dt=dt)
+        # d1 = np.zeros((nEns, 2))
         np.savez(f"data/DRT_trainDA{trainDA}_seed{seed}.npz",
             dB=dB, eB=eB, wB=wB,
             d0=d0, e0=e0, w0=w0,
-            d1=d1, d2=d2)
+            d1=d1)
         times = data['times']
         inpt = data['inpt']
         target = fNMDA.filt(fAMPA.filt(data['inpt'], dt=dt), dt=dt)
@@ -448,7 +403,7 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
             np.savez(f"data/DRT_trainDA{trainDA}_seed{seed}.npz",
                 dB=dB, eB=eB, wB=wB,
                 d0=d0, e0=e0, w0=w0,
-                d1=d1, d2=d2,
+                d1=d1,
                 e1=e1, w1=w1)
             # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
             #     "DRT", 'activities', "ens", n, nTrain)
@@ -476,7 +431,7 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
             np.savez(f"data/DRT_trainDA{trainDA}_seed{seed}.npz",
                 dB=dB, eB=eB, wB=wB,
                 d0=d0, e0=e0, w0=w0,
-                d1=d1, d2=d2,
+                d1=d1,
                 e1=e1, w1=w1,
                 dI=dI, eI=eI, wI=wI)
         # stim_func1, stim_func2 = makeSignalCircle(tTrain, seed=0)
@@ -485,47 +440,11 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
         # plotActivities(data['times'], fSmooth.filt(data['inh'], dt=dt), fSmooth.filt(data['tarInh'], dt=dt),
         #     "DRT", 'activities', "inh", -1, 0)
 
-    if 4 in load:
-        data = np.load(f"data/DRT_trainDA{trainDA}_seed{seed}.npz")
-        e2, w2 = data['e2'], data['w2']
-    else:
-        # e2 = -np.array(e1)
-        # w2 = -np.array(w1)
-        print('train e2, w2 from ens to ens2 to compute negative of identity function')
-        e2, w2 = None, None
-        angles = np.linspace(0, 2*np.pi, nTrain+1)
-        for n in range(nTrain):
-            stim_func1, stim_func2 = makeSignalCircle(tTrain, seed=n)
-            data = goTrain(trainDA=trainDA, learn3=True, t=tTrain, seed=seed, stim_func1=stim_func1, stim_func2=stim_func2,
-                wB=wB,
-                w0=w0,
-                w1=w1,
-                d2=d2, e2=e2, w2=w2)
-            e2, w2 = data['e2'], data['w2']
-            np.savez(f"data/DRT_trainDA{trainDA}_seed{seed}.npz",
-                dB=dB, eB=eB, wB=wB,
-                d0=d0, e0=e0, w0=w0,
-                d1=d1, d2=d2,
-                e1=e1, w1=w1,
-                dI=dI, eI=eI, wI=wI,
-                e2=e2, w2=w2)
-            # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
-            #     "DRT", 'activities', "ens2", n, nTrain)
-        # stim_func1, stim_func2 = makeSignalCircle(tTrain, seed=0)
-        # data = goTrain(trainDA=trainDA, check3=True, t=tTrain, seed=seed, stim_func1=stim_func1, stim_func2=stim_func2,
-        #     wB=wB,
-        #     w0=w0,
-        #     w1=w1,
-        #     w2=w2)
-        # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
-        #     "DRT", 'activities', "ens2", -1, 0)
 
-
-def goTest(cueInpt, gateInpt, cues, t, tGate, trainDA=0.0, testDA=0.0, seed=0,
-    w0=None, w1=None, wB=None, wI=None, w2=None):
+def goTest(cueInpt, gateInpt, cues, t, tGate, trainDA=0.0, testDA=0.0, seed=0):
 
     weights = np.load(f"data/DRT_trainDA{trainDA}_seed{seed}.npz")
-    wB, wI, w0, w1, d1, w2 = weights['wB'], weights['wI'], weights['w0'], weights['w1'], weights['d1'], weights['w2']
+    wB, wI, w0, w1, d1 = weights['wB'], weights['wI'], weights['w0'], weights['w1'], weights['d1'],
     ePre = sphere.sample(nPre, 2, rng=np.random.RandomState(seed=seed))
     wInh = -1e-1*np.ones((nEns, nEns))
     with nengo.Network() as network:
@@ -551,7 +470,7 @@ def goTest(cueInpt, gateInpt, cues, t, tGate, trainDA=0.0, testDA=0.0, seed=0,
         nengo.Connection(preI, inh, synapse=AMPA(), solver=NoSolver(wI, weights=True))
         nengo.Connection(diff, ens, synapse=NMDA(), solver=NoSolver(w1, weights=True))
         nengo.Connection(ens, ens, synapse=NMDA(), solver=NoSolver(w1, weights=True))
-        nengo.Connection(ens, diff, synapse=NMDA(), solver=NoSolver(w2, weights=True))
+        nengo.Connection(ens, diff, synapse=NMDA(), solver=NoSolver(-w1, weights=True))
         nengo.Connection(inh, diff, synapse=GABA(), solver=NoSolver(wInh, weights=True))
         nengo.Connection(ens, cleanup.input, synapse=fNMDA, solver=NoSolver(d1, weights=False))
 
@@ -647,6 +566,6 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
     plt.tight_layout()
     fig.savefig(f'plots/DRT/trainDA={trainDA}_testDA{testDA}_seed{seed}.pdf')
 
-baseline(nCues=2, nSeeds=2, tTest=0.1, tGate=0.1)
-train(trainDA=0.0, seed=0, load=[], nTrain=1, tTrain=0.1)
-test(trainDA=0.0, testDA=0.0, seed=0, nCues=1, tTest=0.1, tGate=0.1)
+# baseline(nCues=2, nSeeds=2, tTest=0.1, tGate=0.1)
+# train(trainDA=0.0, seed=0, load=[], nTrain=1, tTrain=0.1)
+test(trainDA=0.0, testDA=0.0, seed=0, nCues=1, tTest=20, tGate=1)
