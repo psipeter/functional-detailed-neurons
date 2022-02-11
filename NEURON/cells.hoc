@@ -195,7 +195,7 @@ begintemplate Interneuron
 			insert kdyn
 			insert pas
 			cm = 1.0       /* microF/cm2 */
-			g_pas = (10.00-2.5*DA)*1e-5  /* mho/cm2 */
+			g_pas = 10.00*1e-5  /* mho/cm2 */
 			e_pas = -70
 			Ra = 150*rR         /* ohm-cm */
 		}
@@ -210,7 +210,7 @@ begintemplate Interneuron
 			insert kdyn
 			insert pas
 			cm = 1.0*rCm       /* microF/cm2 */
-			g_pas = (10.00-2.5*DA)*1e-5  /* mho/cm2 */
+			g_pas = 10.00*1e-5  /* mho/cm2 */
 			e_pas = -70
 			Ra = 150*rR         /* ohm-cm */
 		}
@@ -227,10 +227,10 @@ begintemplate Interneuron
 	proc set_DA() {
 		DA = $1
 		soma {
-			g_pas = (10.00-2.5*DA)*1e-5  /* mho/cm2 */
+			g_pas = (10.00-0.0*DA)*1e-5  /* mho/cm2 */
 		}
 		dendrite {
-			g_pas = (10.00-2.5*DA)*1e-5  /* mho/cm2 */
+			g_pas = (10.00-0.0*DA)*1e-5  /* mho/cm2 */
 		}
 	}
 

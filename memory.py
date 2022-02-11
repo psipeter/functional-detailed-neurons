@@ -305,7 +305,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         target = data['inpt']
         aEns = f1.filt(data['ens'], dt=dt)
         xhat = np.dot(aEns, d1)
-        error = rmse(xhat, target)
+        error = rmse(xhat[int(tGate/dt):], target[int(tGate/dt):])
         dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error]], columns=columns))
         
         fig, ax, = plt.subplots()
@@ -316,10 +316,10 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         fig.savefig(f'plots/memory/test_{neuron_type}_{n}.pdf')
 
         fig, ax = plt.subplots()
-        ax.plot(xhat[int(tGate/dt):,0], xhat[int(tGate/dt):,1], label='xhat, rmse=%.3f'%error, zorder=1)
+        ax.plot(xhat[:,0], xhat[:,1], label='xhat, rmse=%.3f'%error, zorder=1)
         ax.scatter(target[0,0], target[0,1], s=10, color='k', label='target', zorder=2)
         ax.legend()
-        ax.set(yticks=((-1,1)), xticks=((-1,1)))
+        ax.set(xlabel=r"$\mathbf{x}_0$", ylabel=r"$\mathbf{x}_1$", yticks=((-1,1)), xticks=((-1,1)))
         fig.savefig(f'plots/memory/space_{neuron_type}_{n}.pdf')
         plt.close('all')
 
@@ -339,7 +339,7 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
 
     ax.plot(np.sin(times), np.cos(times), color='gray', alpha=0.5, linewidth=0.5, linestyle='--', zorder=1)
     ax.scatter(target[0,0], target[0,1], s=10, color='k', alpha=0.5, label='target', zorder=2)
-    ax.set(xticks=((-1,1)), yticks=((-1, 1)), xlabel=r"$\mathbf{x}_0(t)$", ylabel=r"$\mathbf{x}_1(t)$")
+    ax.set(xticks=((-1,1)), yticks=((-1, 1)), xlabel=r"$\mathbf{x}_0$", ylabel=r"$\mathbf{x}_1$")
     # ax.legend(loc='upper right', frameon=False)
     plt.tight_layout()
     fig.savefig('plots/figures/memory.pdf')
@@ -353,4 +353,4 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
     fig.savefig('plots/figures/memory_barplot.svg')
 
 
-compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2])

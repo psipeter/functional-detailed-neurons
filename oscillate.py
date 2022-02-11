@@ -379,7 +379,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTrans=5, seed=0, w=2*
 
     return times, tarX, xhat, dfs
 
-def compare(neuron_types, nTrain=10, tTrain=10, nTest=1, tTest=10, tTrans=5, load=[],
+def compare(neuron_types, nTrain=10, tTrain=10, nTest=10, tTest=10, tTrans=5, load=[],
     eRates=[1e-6, 1e-5, 1e-6, 1e-7]):
 
     dfsAll = []
@@ -416,4 +416,4 @@ def compare(neuron_types, nTrain=10, tTrain=10, nTest=1, tTest=10, tTrans=5, loa
     fig.savefig('plots/figures/oscillate_barplot_freq.svg')
 
 
-compare([LIF(), Izhikevich(), Wilson()], load=[])
+compare([LIF(), Izhikevich(), Wilson(), NEURON("Pyramidal")], load=[0,1,2,3])
