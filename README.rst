@@ -13,6 +13,8 @@ Install virtual environment
 
   pip3 install pipenv
 
+  mkdir .venv
+
   pipenv --python=3.7
 
   pipenv shell
@@ -29,4 +31,4 @@ Compile NEURON channel mechanisms detailed_neurons
 
   cd NEURON
 
-  [virtual-env-directory]/bin/nrnivmodl
+  .venv/bin/nrnivmodl
