@@ -31,4 +31,4 @@ Compile NEURON channel mechanisms detailed_neurons
 
   cd NEURON
 
-  .venv/bin/nrnivmodl
+  ../.venv/bin/nrnivmodl

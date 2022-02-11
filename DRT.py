@@ -645,8 +645,8 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
     ax.set(xlim=((0, tTest)), xticks=((0, tTest)), ylim=((0, 0.4)), yticks=((0, 1)), ylabel='Error (Euclidean)')
     ax2.set(xlim=((0, tTest)), xticks=((0, tTest)), ylim=((0, 100)), yticks=((0, 100)), ylabel='Percent Correct', xlabel='Delay Length (s)')
     plt.tight_layout()
-    fig.savefig(f'plots/DRT/trainDA{trainDA}_testDA{testDA}_seed{seed}.pdf')
+    fig.savefig(f'plots/DRT/trainDA={trainDA}_testDA{testDA}_seed{seed}.pdf')
 
-# baseline(nCues=2, nSeeds=2, tTest=0.2, tGate=0.1)
-# train(trainDA=0.0, seed=0, load=[], nTrain=1, tTrain=0.1)
+baseline(nCues=2, nSeeds=2, tTest=0.1, tGate=0.1)
+train(trainDA=0.0, seed=0, load=[], nTrain=1, tTrain=0.1)
 test(trainDA=0.0, testDA=0.0, seed=0, nCues=1, tTest=0.1, tGate=0.1)
