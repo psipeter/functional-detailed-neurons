@@ -166,8 +166,8 @@ def baseline(nCues=16, nSeeds=10, tTest=20, tGate=1, plot=True, load=False, thr=
 
 def makeSignalCircle(t, rad=1, rms=0.2, seed=0):
     phase = np.random.RandomState(seed=seed).uniform(0, 1)
-    stim = nengo.processes.WhiteSignal(period=t, high=10, rms=rms, seed=seed)
-    stim2 = nengo.processes.WhiteSignal(period=t, high=10, rms=rms, seed=50+seed)
+    stim = nengo.processes.WhiteSignal(period=t, high=1, rms=rms, seed=seed)
+    stim2 = nengo.processes.WhiteSignal(period=t, high=1, rms=rms, seed=50+seed)
     with nengo.Network() as model:
         inpt = nengo.Node(stim)
         inpt2 = nengo.Node(stim2)
@@ -307,8 +307,8 @@ def goTrain(trainDA, t=10, seed=0,
         inpt=sim.data[pInpt],
         ens=sim.data[pEns],
         tarEns=sim.data[pTarEns] if learn0 or check0 else None,
-        ens2=sim.data[pEns2] if learn1 or learn3 or check1 or check3 else None,
-        ens3=sim.data[pEns3] if learn1 or learn3 or check1 or check3 else None,
+        ens2=sim.data[pEns2] if learn1 or check1 else None,
+        ens3=sim.data[pEns3] if learn1 or check1 else None,
         inh=sim.data[pInh] if learn2 or check2 else None,
         tarInh=sim.data[pTarInh] if learn2 or check2 else None,
         eB=eB,
@@ -370,7 +370,6 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
             targets[n] = fNMDA.filt(fAMPA.filt(data['inpt'], dt=dt), dt=dt)
             spikes[n] = data['ens']
         d1 = trainD(spikes, targets, nTrain, fNMDA, dt=dt)
-        # d1 = np.zeros((nEns, 2))
         np.savez(f"data/DRT_trainDA{trainDA}_seed{seed}.npz",
             dB=dB, eB=eB, wB=wB,
             d0=d0, e0=e0, w0=w0,
@@ -567,5 +566,5 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
     fig.savefig(f'plots/DRT/trainDA={trainDA}_testDA{testDA}_seed{seed}.pdf')
 
 # baseline(nCues=2, nSeeds=2, tTest=0.1, tGate=0.1)
-# train(trainDA=0.0, seed=0, load=[], nTrain=1, tTrain=0.1)
+train(trainDA=0.0, seed=0, load=[], nTrain=10, tTrain=10)
 test(trainDA=0.0, testDA=0.0, seed=0, nCues=1, tTest=20, tGate=1)
