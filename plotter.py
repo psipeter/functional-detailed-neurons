@@ -21,3 +21,17 @@ def plotActivities(times, aEns, aTarA, network, neuron_type, ens, nT, nTrain):
             plt.tight_layout()
             plt.savefig(f'plots/{network}/{neuron_type}/{ens}/{nT+1}p{nTrain}_{n}.pdf')
             plt.close('all')
+
+def checkTrain(times, aEns, aTar, stage):
+    for n in range(aTar.shape[1]):
+        ymax1 = np.max(aEns[:,n])
+        ymax2 = np.max(aTar[:,n])
+        ymax = np.max([ymax1, ymax2]) if ymax1+ymax2>0 else 1
+        fig, ax = plt.subplots(figsize=((6, 2)))
+        ax.plot(times, aEns[:,n], alpha=0.5)
+        ax.plot(times, aTar[:,n], alpha=0.5, color='gray')
+        ax.set(xlabel='time (s)', ylabel=r"$a(t)$ (Hz)", xlim=((0, times[-1])), ylim=((0, ymax)), xticks=((0, times[-1])), yticks=((0, ymax)))
+        sns.despine()
+        plt.tight_layout()
+        plt.savefig(f'plots/DRT/training/stage{stage}_neuron{n}.pdf')
+        plt.close('all')

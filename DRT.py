@@ -11,7 +11,7 @@ from nengolib.synapses import ss2sim
 from nengolib.signal import LinearSystem, s
 from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset, AMPA, GABA, NMDA
 from utils import LearningNode, trainD, fitSinusoid
-# from plotter import plotActivities
+from plotter import checkTrain
 import neuron
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -346,14 +346,13 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
             np.savez(f"data/DRT_trainDA{trainDA}_seed{seed}.npz",
                 dB=dB, eB=eB, wB=wB,
                 d0=d0, e0=e0, w0=w0)
-            # plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarEns'], dt=dt),
-            #     "DRT", 'activities', "pre", n, nTrain)
         # stim_func1, stim_func2 = makeSignalCircle(tTrain, seed=0)
         # data = goTrain(trainDA=trainDA, check0=True, t=tTrain, seed=seed, stim_func1=stim_func1, stim_func2=stim_func2,
         #     wB=wB,
         #     w0=w0)
-        # plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarEns'], dt=dt),
-        #     "DRT", 'activities', "pre", -1, 0)
+        # aEns = fSmooth.filt(data['ens'], dt=dt)
+        # aTar = fSmooth.filt(data['tarEns'], dt=dt)
+        # checkTrain(data['times'], aEns, aTar, stage=0)
 
     if 1 in load:
         data = np.load(f"data/DRT_trainDA{trainDA}_seed{seed}.npz")
@@ -374,17 +373,17 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
             dB=dB, eB=eB, wB=wB,
             d0=d0, e0=e0, w0=w0,
             d1=d1)
-        times = data['times']
-        inpt = data['inpt']
-        target = fNMDA.filt(fAMPA.filt(data['inpt'], dt=dt), dt=dt)
-        aEns = fNMDA.filt(data['ens'], dt=dt)
-        xhat = np.dot(aEns, d1)
-        fig, ax = plt.subplots()
-        ax.plot(times, target, label='target')
-        ax.plot(times, xhat, label='xhat')
-        ax.legend()
-        ax.set(yticks=((-1,1)))
-        fig.savefig(f'plots/DRT/decode_trainDA{trainDA}_seed{seed}.pdf')
+        # times = data['times']
+        # inpt = data['inpt']
+        # target = fNMDA.filt(fAMPA.filt(data['inpt'], dt=dt), dt=dt)
+        # aEns = fNMDA.filt(data['ens'], dt=dt)
+        # xhat = np.dot(aEns, d1)
+        # fig, ax = plt.subplots()
+        # ax.plot(times, target, label='target')
+        # ax.plot(times, xhat, label='xhat')
+        # ax.legend()
+        # ax.set(yticks=((-1,1)))
+        # fig.savefig(f'plots/DRT/decode_trainDA{trainDA}_seed{seed}.pdf')
 
     if 2 in load:
         data = np.load(f"data/DRT_trainDA{trainDA}_seed{seed}.npz")
@@ -404,15 +403,14 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
                 d0=d0, e0=e0, w0=w0,
                 d1=d1,
                 e1=e1, w1=w1)
-            # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
-            #     "DRT", 'activities', "ens", n, nTrain)
         # stim_func1, stim_func2 = makeSignalCircle(tTrain, seed=0)
         # data = goTrain(trainDA=trainDA, check1=True, t=tTrain, seed=seed, stim_func1=stim_func1, stim_func2=stim_func2,
         #     wB=wB,
         #     w0=w0,
         #     w1=w1)
-        # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
-        #     "DRT", 'activities', "ens", -1, 0)
+        # aEns = fSmooth.filt(data['ens2'], dt=dt)
+        # aTar = fSmooth.filt(data['ens3'], dt=dt)
+        # checkTrain(data['times'], aEns, aTar, stage=2)
 
     if 3 in load:
         data = np.load(f"data/DRT_trainDA{trainDA}_seed{seed}.npz")
@@ -425,8 +423,6 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
             data = goTrain(trainDA=trainDA, learn2=True, t=tTrain, seed=seed, stim_func1=stim_func1, stim_func2=stim_func2,
                 dI=dI, eI=eI, wI=wI)
             dI, eI, wI = data['dI'], data['eI'], data['wI']
-            # plotActivities(data['times'], fSmooth.filt(data['inh'], dt=dt), fSmooth.filt(data['tarInh'], dt=dt),
-            #     "DRT", 'activities', "inh", n, 2)
             np.savez(f"data/DRT_trainDA{trainDA}_seed{seed}.npz",
                 dB=dB, eB=eB, wB=wB,
                 d0=d0, e0=e0, w0=w0,
@@ -436,8 +432,9 @@ def train(trainDA, seed, load=[], nTrain=20, tTrain=10):
         # stim_func1, stim_func2 = makeSignalCircle(tTrain, seed=0)
         # data = goTrain(trainDA=trainDA, check2=True, t=tTrain, seed=seed, stim_func1=stim_func1, stim_func2=stim_func2,
         #     wI=wI)
-        # plotActivities(data['times'], fSmooth.filt(data['inh'], dt=dt), fSmooth.filt(data['tarInh'], dt=dt),
-        #     "DRT", 'activities', "inh", -1, 0)
+        # aEns = fSmooth.filt(data['inh'], dt=dt)
+        # aTar = fSmooth.filt(data['tarInh'], dt=dt)
+        # checkTrain(data['times'], aEns, aTar, stage=3)
 
 
 def goTest(cueInpt, gateInpt, cues, t, tGate, trainDA=0.0, testDA=0.0, seed=0):
@@ -456,7 +453,7 @@ def goTest(cueInpt, gateInpt, cues, t, tGate, trainDA=0.0, testDA=0.0, seed=0):
         ens = nengo.Ensemble(nEns, 2, neuron_type=NEURON('Pyramidal', DA=testDA), seed=seed)
         inh = nengo.Ensemble(nEns, 2, neuron_type=NEURON('Interneuron', DA=testDA), seed=seed+1)
         cleanup = nengo.networks.AssociativeMemory(cues, n_neurons=nEns, seed=seed)
-        cleanup.add_wta_network(inhibit_synapse=fGABA)
+        cleanup.add_wta_network(inhibit_synapse=fGABA, inhibit_scale=1.2)
         for pop in cleanup.am_ensembles:
             pop.neuron_type = nengo.LIF()
             pop.max_rates = m
@@ -520,6 +517,7 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
         cueInpt = CueInput()
         gateInpt = GateInput(tGate)
         for n in range(nCues):
+            print(f"Testing cue at ({cues[n][0]}, {cues[n][1]})")
             cueInpt.set(cues[n])
             data = goTest(cueInpt, gateInpt, cues, tTest, tGate, trainDA=trainDA, testDA=testDA, seed=seed)
             error_estimate = np.sqrt(np.square(data['inpt'][:,0]-data['ens'][:,0]) + np.square(data['inpt'][:,1]-data['ens'][:,1]))
@@ -539,8 +537,6 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
                 ax.plot(data['times'], data['ens'], label='ens')
                 ax.plot(data['times'], data['cleanup'], label='cleanup')
                 ax2.plot(data['times'], correct)
-                # ax.plot(data['times'], error_estimate, label='error estimate')
-                # ax.plot(data['times'], error_cleanup, label='error cleanup')
                 ax.set(ylabel='estimate')
                 ax.legend()
                 ax2.set(xlabel='time (s)', ylabel='correct')
@@ -566,5 +562,5 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
     fig.savefig(f'plots/DRT/trainDA={trainDA}_testDA{testDA}_seed{seed}.pdf')
 
 # baseline(nCues=2, nSeeds=2, tTest=0.1, tGate=0.1)
-train(trainDA=0.0, seed=0, load=[], nTrain=10, tTrain=10)
-test(trainDA=0.0, testDA=0.0, seed=0, nCues=1, tTest=20, tGate=1)
+train(trainDA=0.0, seed=1, load=[], nTrain=10, tTrain=10)
+test(trainDA=0.0, testDA=0.0, seed=1, nCues=16, tTest=20, tGate=1)
