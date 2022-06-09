@@ -100,7 +100,7 @@ def trainDF(spikes, targets, nTrain, network, neuron_type, ens,
     
     trials = Trials()
     fmin(objective,
-        rstate=np.random.RandomState(seed=seed),
+        # rstate=np.random.RandomState(seed=seed),
         space=hyperparams,
         algo=tpe.suggest,
         max_evals=evals,

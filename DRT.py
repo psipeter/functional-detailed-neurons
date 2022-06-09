@@ -453,7 +453,7 @@ def goTest(cueInpt, gateInpt, cues, t, tGate, trainDA=0.0, testDA=0.0, seed=0):
         ens = nengo.Ensemble(nEns, 2, neuron_type=NEURON('Pyramidal', DA=testDA), seed=seed)
         inh = nengo.Ensemble(nEns, 2, neuron_type=NEURON('Interneuron', DA=testDA), seed=seed+1)
         cleanup = nengo.networks.AssociativeMemory(cues, n_neurons=nEns, seed=seed)
-        cleanup.add_wta_network(inhibit_synapse=fGABA, inhibit_scale=1.2)
+        cleanup.add_wta_network(inhibit_synapse=fGABA, inhibit_scale=1.3)
         for pop in cleanup.am_ensembles:
             pop.neuron_type = nengo.LIF()
             pop.max_rates = m
@@ -496,19 +496,20 @@ def goTest(cueInpt, gateInpt, cues, t, tGate, trainDA=0.0, testDA=0.0, seed=0):
         cleanup=sim.data[network.pCleanup])
 
 def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, trainDA=0.0, testDA=0.0, seed=0):
-    columns = ('seed', 'trainDA', 'testDA', 'trial', 'delay length', 'error', 'error_cleanup', 'correct')
+    columns = ('seed', 'trial', 'delay length', 'error', 'error_cleanup', 'correct')
     dfs = [] 
     if load=='pkl':
         data = pd.read_pickle(f"data/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}.pkl")
     elif load=='npz':
         dfs = []
-        for seed in range(nSeeds):
-            print(f"seed {seed}")
-            for n in range(nCues): 
-                df = np.load(f"data/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}_trial{n}.npz")
-                for i in range(len(df['times'])):
-                    dfs.append(pd.DataFrame([[
-                        seed, n, df['times'][i]-tGate, df['error_estimate'][i], df['error_cleanup'][i], df['correct'][i]]], columns=columns))
+        # for seed in range(nSeeds):
+            # print(f"seed {seed}")
+        for n in range(nCues): 
+            print(f"cue {n}")
+            df = np.load(f"data/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}_trial{n}.npz")
+            for i in range(len(df['times'])):
+                dfs.append(pd.DataFrame([[
+                    seed, n, df['times'][i]-tGate, df['error_estimate'][i], df['error_cleanup'][i], df['correct'][i]]], columns=columns))
         data = pd.concat(dfs, ignore_index=True)
         data.to_pickle(f"data/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}.pkl")
     else:
@@ -517,7 +518,8 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
         cueInpt = CueInput()
         gateInpt = GateInput(tGate)
         for n in range(nCues):
-            print(f"Testing cue at ({cues[n][0]}, {cues[n][1]})")
+            if n<=14: continue
+            print(f"Testing cue {n} at ({cues[n][0]:.2}, {cues[n][1]:.2})")
             cueInpt.set(cues[n])
             data = goTest(cueInpt, gateInpt, cues, tTest, tGate, trainDA=trainDA, testDA=testDA, seed=seed)
             error_estimate = np.sqrt(np.square(data['inpt'][:,0]-data['ens'][:,0]) + np.square(data['inpt'][:,1]-data['ens'][:,1]))
@@ -549,7 +551,7 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
                 data = np.load(f"data/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}_trial{n}.npz")
                 for i in range(len(data['times'])):
                     dfs.append(pd.DataFrame([[
-                        seed, trainDA, testDA, n, data['times'][i]-tGate, data['error_estimate'][i], data['error_cleanup'][i], data['correct'][i]]], columns=columns))
+                        seed, n, data['times'][i]-tGate, data['error_estimate'][i], data['error_cleanup'][i], data['correct'][i]]], columns=columns))
         data = pd.concat(dfs, ignore_index=True)
         data.to_pickle(f"data/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}.pkl")
 
@@ -561,6 +563,38 @@ def test(nCues=1, nSeeds=1, tTest=20, tGate=1, plot=True, load=False, thr=0.1, t
     plt.tight_layout()
     fig.savefig(f'plots/DRT/trainDA={trainDA}_testDA{testDA}_seed{seed}.pdf')
 
+def load_and_plot(nCues=1, seeds=[], tTest=20, tGate=1, load=False, trainDA=0.0, testDA=0.0):
+    columns = ('seed', 'trial', 'delay length', 'error', 'error_cleanup', 'correct')
+    dfs = [] 
+    if load=='pkl':
+        data = pd.read_pickle(f"data/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}.pkl")
+    elif load=='npz':
+        dfs = []
+        for seed in seeds:
+            print(f"load data from seed {seed}")
+            for n in range(nCues): 
+                print(f"cue {n}")
+                # df = np.load(f"data/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}_trial{n}.npz")
+                df = np.load(f"data/ncues_8/DRT_trainDA={trainDA}_testDA={testDA}_seed{seed}_trial{n}.npz")
+                for i in range(len(df['times'])):
+                    dfs.append(pd.DataFrame([[
+                        seed, n, df['times'][i]-tGate, df['error_estimate'][i], df['error_cleanup'][i], df['correct'][i]]], columns=columns))
+        print('concatenate and save')
+        data = pd.concat(dfs, ignore_index=True)
+        # data.to_pickle(f"data/DRT_trainDA={trainDA}_testDA={testDA}_allseeds.pkl")
+        data.to_pickle(f"data/ncues_8/DRT_trainDA={trainDA}_testDA={testDA}_allseeds.pkl")
+    print('plot')
+    fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=((6,4)))
+    sns.lineplot(data=data, x='delay length', y='error', ax=ax)
+    sns.lineplot(data=data, x='delay length', y='correct', ax=ax2)
+    ax.set(xlim=((0, tTest)), xticks=((0, tTest)), ylim=((0, 0.4)), yticks=((0, 1)), ylabel='Error (Euclidean)')
+    ax2.set(xlim=((0, tTest)), xticks=((0, tTest)), ylim=((0, 100)), yticks=((0, 100)), ylabel='Percent Correct', xlabel='Delay Length (s)')
+    plt.tight_layout()
+    # fig.savefig(f'plots/DRT/trainDA={trainDA}_testDA{testDA}_ncues8.pdf')
+    fig.savefig(f'plots/DRT/trainDA={trainDA}_testDA{testDA}_nCues{nCues}_nSeeds{len(seeds)}.pdf')
+
+
 # baseline(nCues=2, nSeeds=2, tTest=0.1, tGate=0.1)
-train(trainDA=0.0, seed=1, load=[], nTrain=10, tTrain=10)
-test(trainDA=0.0, testDA=0.0, seed=1, nCues=16, tTest=20, tGate=1)
+# train(trainDA=0.0, seed=1, load=[], nTrain=10, tTrain=10)
+# test(trainDA=0.0, testDA=0.0, seed=1, nCues=16, tTest=20, tGate=1, load='npz')
+load_and_plot(nCues=8, seeds=[2,3,4], tTest=10, tGate=1, load='npz', trainDA=0.0, testDA=0.0)
