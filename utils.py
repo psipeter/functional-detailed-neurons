@@ -99,11 +99,12 @@ def trainDF(spikes, targets, nTrain, network, neuron_type, ens,
         return {'loss': loss, 'd': d, 'tauRise': tauRise, 'tauFall': tauFall, 'status': STATUS_OK}
     
     trials = Trials()
+    rstate = np.random.default_rng(seed)
     fmin(objective,
-        # rstate=np.random.RandomState(seed=seed),
         space=hyperparams,
         algo=tpe.suggest,
         max_evals=evals,
+        rstate=rstate,
         trials=trials)
     idx = np.argmin(trials.losses())
     best = trials.trials[idx]

@@ -241,4 +241,11 @@ def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
     # fig.savefig('plots/figures/adaptation_barplot.pdf')
     # fig.savefig('plots/figures/adaptation_barplot.svg')
 
-compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])
+def print_time_constants():
+    for neuron_type in ['LIF()', 'Izhikevich()', 'Wilson()', 'Pyramidal()']:
+        data = np.load(f"data/adaptation_{neuron_type}.npz")
+        rise, fall = 1000*data['tauRiseOut'], 1000*data['tauFallOut']
+        print(f"{neuron_type}:  \t rise {rise:.3}, fall {fall:.5}")
+print_time_constants()
+
+# compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])

@@ -415,5 +415,11 @@ def compare(neuron_types, nTrain=10, tTrain=10, nTest=10, tTest=10, tTrans=5, lo
     fig.savefig('plots/figures/oscillate_barplot_freq.pdf')
     fig.savefig('plots/figures/oscillate_barplot_freq.svg')
 
+def print_time_constants():
+    for neuron_type in ['LIF()', 'Izhikevich()', 'Wilson()', 'Pyramidal()']:
+        data = np.load(f"data/oscillate_{neuron_type}.npz")
+        rise, fall = 1000*data['tauRise1'], 1000*data['tauFall1']
+        print(f"{neuron_type}:  \t rise {rise:.3}, fall {fall:.4}")
+print_time_constants()
 
-compare([LIF(), Izhikevich(), Wilson(), NEURON("Pyramidal")], load=[0,1,2,3])
+# compare([LIF(), Izhikevich(), Wilson(), NEURON("Pyramidal")], load=[0,1,2,3])

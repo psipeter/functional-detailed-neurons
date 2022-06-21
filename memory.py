@@ -352,5 +352,11 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
     fig.savefig('plots/figures/memory_barplot.pdf')
     fig.savefig('plots/figures/memory_barplot.svg')
 
+def print_time_constants():
+    for neuron_type in ['LIF()', 'Izhikevich()', 'Wilson()', 'Pyramidal()']:
+        data = np.load(f"data/memory_{neuron_type}.npz")
+        rise, fall = 1000*data['tauRise1'], 1000*data['tauFall1']
+        print(f"{neuron_type}:  \t rise {rise:.3}, fall {fall:.4}")
+print_time_constants()
 
-compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2])
+# compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2])
