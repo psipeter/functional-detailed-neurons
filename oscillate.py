@@ -21,7 +21,7 @@ import neuron
 import matplotlib.pyplot as plt
 
 import seaborn as sns
-palette = sns.color_palette('colorblind')
+palette = sns.color_palette('dark')
 sns.set_palette(palette)
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
@@ -377,49 +377,89 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTrans=5, seed=0, w=2*
         ax.set(xlim=((0, tTest+tTrans)), yticks=((-1, 1)), xticks=(()), xlabel='', ylabel=r"$\hat{f}(\mathbf{x}(t))$")
         fig.savefig(f'plots/oscillate/test_{neuron_type}_{n}.pdf')
 
-    return times, tarX, xhat, dfs
+    return dfs
 
 def compare(neuron_types, nTrain=10, tTrain=10, nTest=10, tTest=10, tTrans=5, load=[],
-    eRates=[1e-6, 1e-5, 1e-6, 1e-7]):
+    eRates=[1e-6, 1e-5, 1e-6, 1e-7], replot=False):
 
-    dfsAll = []
-    fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, figsize=((5.25, 3)))
-    for i, neuron_type in enumerate(neuron_types):
-        times, tarX, xhat, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest,
-            tTrans=tTrans, eRate=eRates[i], load=load)
-        dfsAll.extend(dfs)
-        ax.plot(times, xhat[:,0], label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
-        ax2.plot(times, xhat[:,1], label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
-    df = pd.concat([df for df in dfsAll], ignore_index=True)
-
-    ax.plot(times, tarX[:,0], label='target', color='k', linewidth=0.5)
-    ax2.plot(times, tarX[:,1], label='target', color='k', linewidth=0.5)
-    ax.set(xlim=((0, tTest+tTrans)), xticks=(()), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}_1(t))$")
-    ax2.set(xlim=((0, tTest+tTrans)), xticks=(()), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}_2(t))$")
-    ax.legend(loc='upper right', frameon=False)
-    plt.tight_layout()
-    fig.savefig('plots/figures/oscillate.pdf')
-    fig.savefig('plots/figures/oscillate.svg')
+    if not replot:
+        dfs = []
+        for i, neuron_type in enumerate(neuron_types):
+            df = run(neuron_type, nTrain, nTest, tTrain, tTest, tTrans=tTrans, eRate=eRates[i], load=load)
+            dfs.extend(df)
+        data = pd.concat(dfs, ignore_index=True)
+        data.to_pickle(f"data/oscillate_compare.pkl")
+    else:
+        data = pd.read_pickle(f"data/oscillate_compare.pkl")
 
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
-    sns.barplot(data=df, x='neuron_type', y='error rmse', ax=ax)
-    ax.set(xlabel='', ylim=((0, 0.1)), yticks=((0, 0.1)), ylabel='Error (RMSE)')
+    sns.barplot(data=data, x='neuron_type', y='error rmse', ax=ax)
+    ax.set(xlabel='', ylim=((0, 0.1)), yticks=((0, 0.15)), ylabel='RMSE')
     plt.tight_layout()
-    fig.savefig('plots/figures/oscillate_barplot_rmse.pdf')
-    fig.savefig('plots/figures/oscillate_barplot_rmse.svg')
+    fig.savefig('plots/figures/oscillate_barplot_rmse.pdf', bbox_inches="tight", pad_inches=0.01)
+    fig.savefig('plots/figures/oscillate_barplot_rmse.svg', bbox_inches="tight", pad_inches=0.01)
 
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
-    sns.barplot(data=df, x='neuron_type', y='error freq', ax=ax)
-    ax.set(xlabel='', ylim=((0, 0.15)), yticks=((0, 0.15)), ylabel=r'Error ($\omega$)')
+    sns.barplot(data=data, x='neuron_type', y='error freq', ax=ax)
+    ax.set(xlabel='', ylim=((0, 0.15)), yticks=((0, 0.15)), ylabel=r'$\Delta \omega$')
     plt.tight_layout()
-    fig.savefig('plots/figures/oscillate_barplot_freq.pdf')
-    fig.savefig('plots/figures/oscillate_barplot_freq.svg')
+    fig.savefig('plots/figures/oscillate_barplot_freq.pdf', bbox_inches="tight", pad_inches=0.01)
+    fig.savefig('plots/figures/oscillate_barplot_freq.svg', bbox_inches="tight", pad_inches=0.01)
+
+compare([LIF(), Izhikevich(), Wilson(), NEURON("Pyramidal")], replot=False, load=[0,1,2,3])
 
 def print_time_constants():
     for neuron_type in ['LIF()', 'Izhikevich()', 'Wilson()', 'Pyramidal()']:
         data = np.load(f"data/oscillate_{neuron_type}.npz")
         rise, fall = 1000*data['tauRise1'], 1000*data['tauFall1']
         print(f"{neuron_type}:  \t rise {rise:.3}, fall {fall:.4}")
-print_time_constants()
+# print_time_constants()
 
-# compare([LIF(), Izhikevich(), Wilson(), NEURON("Pyramidal")], load=[0,1,2,3])
+
+def stability(neuron_types, t1=10, t2=90, load=False,
+    seed=0, w=2*np.pi, nEns=100, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-2, 1e-1)):
+
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=((5.25, 2.5)), sharex=False, sharey=True)
+    for i, neuron_type in enumerate(neuron_types):
+        if load:
+            data = np.load(f"data/oscillate_{neuron_type}_stability.npz")
+            times, xhat, tarX = data['times'], data['xhat'], data['tarX']
+        else:
+            data = np.load(f"data/oscillate_{neuron_type}.npz")
+            dB, eB, wB = data['dB'], data['eB'], data['wB']
+            d0, e0, w0 = data['d0'], data['e0'], data['w0']
+            d1, tauRise1, tauFall1 = data['d1'], data['tauRise1'], data['tauFall1']
+            f1 = DoubleExp(tauRise1, tauFall1)
+            e1, w1 = data['e1'], data['w1']
+            
+            stim_func1, stim_func2 = makeKick(t1+t2, phase=0, tSupv=0.2, w=2*np.pi)
+            data = go(neuron_type, stim_func1=stim_func1, stim_func2=stim_func2, test=True,
+                nEns=nEns, t=t1+t2, dt=dt, seed=seed, w=w,
+                wB=wB, w0=w0, f1=f1, w1=w1,
+                fTarget=fTarget, fSmooth=fSmooth)
+            times = data['times']
+            preX = data['preX']
+            tarX = np.concatenate((np.sin(w*times).reshape(-1,1), np.cos(w*times).reshape(-1,1)), axis=1)
+            aEns = f1.filt(data['ens'], dt=dt)
+            xhat = np.dot(aEns, d1)
+            np.savez(f"data/oscillate_{neuron_type}_stability.npz", times=times, xhat=xhat, tarX=tarX)
+
+        axes[0][0].plot(times[:int(t1/dt)], xhat[:int(t1/dt),0], label=f"{str(neuron_type)[:-2]}", linewidth=0.5, color=palette[i])
+        axes[1][0].plot(times[:int(t1/dt)], xhat[:int(t1/dt),1], label=f"{str(neuron_type)[:-2]}", linewidth=0.5, color=palette[i])
+        axes[0][1].plot(times[int(t2/dt):], xhat[int(t2/dt):,0], linewidth=0.5, color=palette[i])
+        axes[1][1].plot(times[int(t2/dt):], xhat[int(t2/dt):,1], linewidth=0.5, color=palette[i])
+        if i==0:
+            axes[0][0].plot(times[:int(t1/dt)], tarX[:int(t1/dt),0], color='k', label="target", linewidth=0.5)
+            axes[1][0].plot(times[:int(t1/dt)], tarX[:int(t1/dt),1], color='k', label="target", linewidth=0.5)
+            axes[0][1].plot(times[int(t2/dt):], tarX[int(t2/dt):,0], color='k', linewidth=0.5)
+            axes[1][1].plot(times[int(t2/dt):], tarX[int(t2/dt):,1], color='k', linewidth=0.5)            
+
+    axes[0][0].set(xlim=((0, t1)), xticks=(()), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}_1(t))$")#, title='1')
+    axes[0][1].set(xlim=((t2, t1+t2)), xticks=(()))#, title='2')
+    axes[1][0].set(xlim=((0, t1)), xticks=((0, t1)), yticks=((-1, 1)), xlabel="time (s)", ylabel=r"$\hat{f}(\mathbf{x}_2(t))$")#, title='3')
+    axes[1][1].set(xlim=((t2, t1+t2)), xticks=((t2, t1+t2)))#, title='4')    
+    plt.tight_layout()
+    fig.savefig('plots/oscillate/oscillate_stability.pdf', bbox_inches="tight", pad_inches=0.01)
+    fig.savefig('plots/oscillate/oscillate_stability.svg', bbox_inches="tight", pad_inches=0.01)
+
+# stability([LIF(), Izhikevich(), Wilson(), NEURON("Pyramidal")], t1=10, t2=90, load=True)

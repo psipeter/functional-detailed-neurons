@@ -7,6 +7,7 @@ from nengolib.signal import s
 from utils import trainDF
 from nengolib import Lowpass, DoubleExp
 from nengo.solvers import NoSolver, LstsqL2
+from nengo.dists import Uniform
 
 def measure_correlation_integral(X, l, N, seed):
 	rng = np.random.RandomState(seed=seed)
@@ -19,7 +20,7 @@ def measure_correlation_integral(X, l, N, seed):
 	return l, C
 
 def feedback_tar(x):
-	speed = 1
+	speed = 0.25
 	sigma = 10
 	beta = 8.0 / 3
 	rho = 28
@@ -30,13 +31,30 @@ def feedback_tar(x):
 	deriv = np.array([dx, dy, dz])
 	return speed * deriv
 
-def makeKick(tKick=1e-3, seed=0):
+def make_kick(tKick=1e-3, seed=0):
 	rng = np.random.RandomState(seed=seed)
-	# sampler = nengo.dists.UniformHypersphere()
-	# kick = sampler.sample(1, 3, rng=rng).T.reshape(-1)
 	kick = rng.uniform(-1,1,size=3)
-	stim = lambda t: kick if t<=tKick else [0,0,0]
-	return stim
+	kick_func = lambda t: kick if t<=tKick else [0,0,0]
+	return kick_func
+
+def make_noise(t, dt=0.001, freq=1, rms=1, seed=0):
+    n1 = nengo.processes.WhiteSignal(period=t, high=freq, rms=rms, seed=seed)
+    n2 = nengo.processes.WhiteSignal(period=t, high=freq, rms=rms, seed=200+seed)
+    n3 = nengo.processes.WhiteSignal(period=t, high=freq, rms=rms, seed=400+seed)
+    with nengo.Network() as model:
+        i1 = nengo.Node(n1)
+        i2 = nengo.Node(n2)
+        i3 = nengo.Node(n3)
+        inpt = nengo.Node(size_in=3)
+        nengo.Connection(i1, inpt[0], synapse=None)
+        nengo.Connection(i2, inpt[1], synapse=None)
+        nengo.Connection(i3, inpt[2], synapse=None)
+        probe = nengo.Probe(inpt, synapse=None)
+    with nengo.Simulator(model, progress_bar=False, dt=dt) as sim:
+        sim.run(t+dt, progress_bar=False)
+    u = sim.data[probe]
+    noise_func = lambda t: u[int(t/dt)]
+    return noise_func
 
 def run(
 		nEns = 300,
@@ -48,40 +66,37 @@ def run(
 		tTrans = 0,
 		tKick = 1e-3,
 		nTrain = 1,
+		nTest = 1,
 		evals = 10,
 		dt = 1e-3,
 		reg = 1e-2,
 		penalty = 0,
-		max_rates = nengo.dists.Uniform(30, 40),
-		sim_pre = True,
+		max_rates = Uniform(30, 40),
+		intercepts = Uniform(-1, 1),
 		load = [],
-		noise_tar = False,
-		noise_drive = False,
-		intercept = 1.0,
-		nTest = 1,
+		spk_thr = 100,
+		fPre = Lowpass(1e-2),
+		noise_freq = 1.0,
+		noise_rms = 1.0,
 	):
 
 	rng = np.random.RandomState(seed=seed)
-	fPre = Lowpass(1e-2) if sim_pre else None
 
-	def go(phase, kick, d, f):
+	def go(phase, kick_func, noise_func, d, f):
 		with nengo.Network(seed=seed) as model:
-			inpt = nengo.Node(kick)
-			noise = nengo.Node(lambda t: rng.normal(1.0, size=3) if noise_drive else [0,0,0])
+			kick = nengo.Node(kick_func)
+			noise = nengo.Node(noise_func)
 			tar = nengo.Ensemble(1, 3, neuron_type=nengo.Direct())
-			if sim_pre:
-				pre = nengo.Ensemble(nPre, 3, max_rates=max_rates, radius=r, neuron_type=nengo.LIF(), seed=seed)
-			else:
-				pre = nengo.Ensemble(1, 3, neuron_type=nengo.Direct())
-			ens = nengo.Ensemble(nEns, 3, max_rates=max_rates, radius=r, intercepts=nengo.dists.Uniform(-intercept, intercept), neuron_type=neuron_type, seed=seed)
-			nengo.Connection(inpt, tar, synapse=None)
+			pre = nengo.Ensemble(nPre, 3, max_rates=max_rates, radius=r, neuron_type=nengo.LIF(), seed=seed)
+			ens = nengo.Ensemble(nEns, 3, max_rates=max_rates, radius=r, intercepts=intercepts, neuron_type=neuron_type, seed=seed)
+			nengo.Connection(kick, tar, synapse=None)
+			nengo.Connection(noise, tar, synapse=None)
 			nengo.Connection(tar, tar, function=feedback_tar, synapse=~s)
 			if phase=="train":
 				nengo.Connection(tar, pre, synapse=None)
-				nengo.Connection(noise, pre, synapse=None)	
 				nengo.Connection(pre, ens, synapse=fPre)
 			elif phase=="test":
-				nengo.Connection(inpt, pre, synapse=None)
+				nengo.Connection(kick, pre, synapse=None)
 				nengo.Connection(pre, ens, synapse=fPre)
 				nengo.Connection(ens.neurons, ens, transform=d.T, synapse=f)        
 			spk = nengo.Probe(ens.neurons, synapse=None)
@@ -99,20 +114,24 @@ def run(
 		spikes = np.zeros((nTrain, int((t-tTrans)/dt), nEns))
 		for n in range(nTrain):
 			# print(f"decoder and filter simulations, iteration {n}")
-			kick = makeKick(tKick=tKick, seed=n)
-			times, spk, tar = go("train", kick, None, None)
-			if noise_tar:
-				# tar = tar + np.array([0.5*np.sin(20*np.pi*times), 0.4*np.sin(18*np.pi*times), 0.3*np.sin(22*np.pi*times)]).T
-				tar = tar + rng.normal(0.2, size=((times.shape[0], 3)))
-			if sim_pre:
-				# targets[n] = fPre.filt(tar, dt=dt)[int(tTrans/dt):]
-				targets[n] = tar[int(tTrans/dt):]
-			else:
-				targets[n] = tar[int(tTrans/dt):]
-			spikes[n] = spk[int(tTrans/dt):]
+			kick_func = make_kick(seed=seed+n)
+			noise_func = make_noise(t=t, freq=noise_freq, rms=noise_rms, seed=seed+n)
+			times, spk, tar = go("train", kick_func, noise_func, None, None)
+			# pretend that neurons below spike threshold did not spike at all
+			spk_cut = np.zeros_like(spk).T
+			for nrn in range(nEns):
+				if np.sum(spk[:,nrn]*dt) < spk_thr and n==nTrain-1:
+					print(f"removing quiet neuron {nrn} with {np.sum(spk[:,nrn]*dt)} spikes")
+					pass
+				else:
+					spk_cut[nrn] = spk[:,nrn].T
+			targets[n] = tar[int(tTrans/dt):]
+			# spikes[n] = spk[int(tTrans/dt):]
+			spikes[n] = spk_cut.T[int(tTrans/dt):]
 		d, rise, fall = trainDF(spikes, targets, nTrain, network="lorenz", neuron_type="LIF", ens="ens", dt=dt,
 			penalty=penalty, seed=seed, reg=reg, evals=evals)
 		print('synapse', rise, fall)
+		# print("d", d)
 		np.savez(f"data/lorenz_fiddle.npz", d=d, rise=rise, fall=fall)
 
 		f = DoubleExp(rise, fall)
@@ -120,17 +139,6 @@ def run(
 			aEns = f.filt(spikes[n], dt=dt)[int(tTrans/dt):]
 			xhat = np.dot(aEns, d)
 			target = targets[n][int(tTrans/dt):]
-			# fig = plt.figure(figsize=((12, 6)))
-			# ax = fig.add_subplot(121, projection='3d')
-			# ax2 = fig.add_subplot(122, projection='3d')
-			# ax.plot(*xhat.T, linewidth=0.25)
-			# ax2.plot(*target.T, linewidth=0.25)
-			# ax.set(title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$", zlabel=r"$\mathbf{z}$")
-			# ax2.set(title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$", zlabel=r"$\mathbf{z}$")
-			# ax.grid(False)
-			# ax2.grid(False)
-			# plt.tight_layout()
-			# fig.savefig(f"plots/lorenz/fiddle_decode_{n}.pdf")
 			fig, axes = plt.subplots(nrows=2, ncols=3, figsize=((9, 6)), sharex=False, sharey=False)
 			axes[0][0].plot(xhat[:,0], xhat[:,1], linewidth=0.25)
 			axes[0][1].plot(xhat[:,0], xhat[:,2], linewidth=0.25)
@@ -138,40 +146,25 @@ def run(
 			axes[1][0].plot(target[:,0], target[:,1], linewidth=0.25)
 			axes[1][1].plot(target[:,0], target[:,2], linewidth=0.25)
 			axes[1][2].plot(target[:,1], target[:,2], linewidth=0.25)
-			axes[0][0].set(xlim=((-r, r)), ylim=((-r, r)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$")
-			axes[0][1].set(xlim=((-r, r)), ylim=((-r, r)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{z}$")
-			axes[0][2].set(xlim=((-r, r)), ylim=((-r, r)), title='xhat', xlabel=r"$\mathbf{y}$", ylabel=r"$\mathbf{z}$")
-			axes[1][0].set(xlim=((-r, r)), ylim=((-r, r)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$")
-			axes[1][1].set(xlim=((-r, r)), ylim=((-r, r)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{z}$")
-			axes[1][2].set(xlim=((-r, r)), ylim=((-r, r)), title='target', xlabel=r"$\mathbf{y}$", ylabel=r"$\mathbf{z}$")
+			axes[0][0].set(xlim=((-40, 40)), ylim=((-40, 40)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$")
+			axes[0][1].set(xlim=((-40, 40)), ylim=((-40, 40)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{z}$")
+			axes[0][2].set(xlim=((-40, 40)), ylim=((-40, 40)), title='xhat', xlabel=r"$\mathbf{y}$", ylabel=r"$\mathbf{z}$")
+			axes[1][0].set(xlim=((-40, 40)), ylim=((-40, 40)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$")
+			axes[1][1].set(xlim=((-40, 40)), ylim=((-40, 40)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{z}$")
+			axes[1][2].set(xlim=((-40, 40)), ylim=((-40, 40)), title='target', xlabel=r"$\mathbf{y}$", ylabel=r"$\mathbf{z}$")
 			plt.tight_layout()
 			fig.savefig(f"plots/lorenz/fiddle_decode_{n}.pdf")
 
 	f = DoubleExp(rise, fall)
 
 	for n in range(nTest):
-		kick = makeKick(tKick=tKick, seed=100+n)
-		times, spk, tar = go("test", kick, d, f)
+		kick_func = make_kick(seed=seed+n)
+		noise_func = lambda t: [0,0,0]
+		# noise_func = make_noise(t=t, freq=noise_freq, rms=noise_rms, seed=seed+n)
+		times, spk, tar = go("test", kick_func, noise_func, d, f)
 		aEns = f.filt(spk, dt=dt)[int(tTrans/dt):]
 		xhat = np.dot(aEns, d)
 		target = tar[int(tTrans/dt):]
-			
-		# palette = sns.color_palette("colorblind")
-		# fig = plt.figure(figsize=((12, 6)))
-		# ax = fig.add_subplot(121, projection='3d')
-		# ax2 = fig.add_subplot(122, projection='3d')
-		# ax.scatter(*xhat[0].T, color=palette[1])
-		# ax2.scatter(*target[0].T, color=palette[1])
-		# ax.plot(*xhat[int(tKick/dt):].T, color=palette[0], linewidth=0.25)
-		# ax2.plot(*target[int(tKick/dt):].T, color=palette[0], linewidth=0.25)
-		# ax.plot(*xhat[:int(tKick/dt)].T, color=palette[1], linewidth=0.25)
-		# ax2.plot(*target[:int(tKick/dt)].T, color=palette[1], linewidth=0.25)
-		# ax.set(xlim=((-30, 30)), ylim=((-30, 30)), zlim=((-30, 30)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$", zlabel=r"$\mathbf{z}$")
-		# ax2.set(xlim=((-30, 30)), ylim=((-30, 30)), zlim=((-30, 30)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$", zlabel=r"$\mathbf{z}$")
-		# ax.grid(False)
-		# ax2.grid(False)
-		# plt.tight_layout()
-		# fig.savefig(f"plots/lorenz/fiddle_3d_{n}.pdf")
 
 		fig, axes = plt.subplots(nrows=2, ncols=3, figsize=((9, 6)), sharex=False, sharey=False)
 		axes[0][0].plot(xhat[:,0], xhat[:,1], linewidth=0.25)
@@ -180,12 +173,12 @@ def run(
 		axes[1][0].plot(target[:,0], target[:,1], linewidth=0.25)
 		axes[1][1].plot(target[:,0], target[:,2], linewidth=0.25)
 		axes[1][2].plot(target[:,1], target[:,2], linewidth=0.25)
-		axes[0][0].set(xlim=((-r, r)), ylim=((-r, r)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$")
-		axes[0][1].set(xlim=((-r, r)), ylim=((-r, r)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{z}$")
-		axes[0][2].set(xlim=((-r, r)), ylim=((-r, r)), title='xhat', xlabel=r"$\mathbf{y}$", ylabel=r"$\mathbf{z}$")
-		axes[1][0].set(xlim=((-r, r)), ylim=((-r, r)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$")
-		axes[1][1].set(xlim=((-r, r)), ylim=((-r, r)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{z}$")
-		axes[1][2].set(xlim=((-r, r)), ylim=((-r, r)), title='target', xlabel=r"$\mathbf{y}$", ylabel=r"$\mathbf{z}$")
+		axes[0][0].set(xlim=((-40, 40)), ylim=((-40, 40)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$")
+		axes[0][1].set(xlim=((-40, 40)), ylim=((-40, 40)), title='xhat', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{z}$")
+		axes[0][2].set(xlim=((-40, 40)), ylim=((-40, 40)), title='xhat', xlabel=r"$\mathbf{y}$", ylabel=r"$\mathbf{z}$")
+		axes[1][0].set(xlim=((-40, 40)), ylim=((-40, 40)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{y}$")
+		axes[1][1].set(xlim=((-40, 40)), ylim=((-40, 40)), title='target', xlabel=r"$\mathbf{x}$", ylabel=r"$\mathbf{z}$")
+		axes[1][2].set(xlim=((-40, 40)), ylim=((-40, 40)), title='target', xlabel=r"$\mathbf{y}$", ylabel=r"$\mathbf{z}$")
 		plt.tight_layout()
 		fig.savefig(f"plots/lorenz/fiddle_state_{n}.pdf")
 
@@ -198,31 +191,31 @@ def run(
 		ax2.set(title='max firing rates')
 		fig.savefig(f"plots/lorenz/fiddle_rates_{n}.pdf")
 
-		# ls_tarX, Cs_tarX, ls_xhat, Cs_xhat = [], [], [], []
-		# for l in [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 6, 8, 10]:
-		# 	l_tarX, C_tarX = measure_correlation_integral(target[2000:], l=l, N=10000, seed=seed)
-		# 	l_xhat, C_xhat = measure_correlation_integral(xhat[2000:], l=l, N=10000, seed=seed)
-		# 	if C_tarX > 0:
-		# 		ls_tarX.append(l_tarX)
-		# 		Cs_tarX.append(C_tarX)
-		# 	if C_xhat > 0:
-		# 		ls_xhat.append(l_xhat)
-		# 		Cs_xhat.append(C_xhat)
-		# slope_tarX, intercept_tarX, r_tarX, p_tarX, se_tarX = linregress(np.log2(ls_tarX), np.log2(Cs_tarX))
-		# slope_xhat, intercept_xhat, r_xhat, p_xhat, se_xhat = linregress(np.log2(ls_xhat), np.log2(Cs_xhat))
-		# error_tarX = slope_tarX / 2.05
-		# error_xhat = slope_xhat / 2.05
-		# fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((12,6)), sharey=True)
-		# ax.scatter(np.log2(ls_xhat), np.log2(Cs_xhat))
-		# ax2.scatter(np.log2(ls_tarX), np.log2(Cs_tarX))
-		# ax.plot(np.log2(ls_xhat), intercept_xhat+slope_xhat*np.log2(ls_xhat), label=f'slope={slope_xhat:.3}, r={r_xhat:.3}, p={p_xhat:.3f}')
-		# ax2.plot(np.log2(ls_tarX), intercept_tarX+slope_tarX*np.log2(ls_tarX), label=f'slope={slope_tarX:.3}, r={r_tarX:.3}, p={p_tarX:.3f}')
-		# ax.set(xlabel='log(l)', ylabel='log(C)', title='xhat')
-		# ax2.set(xlabel='log(l)', ylabel='log(C)', title='target')
-		# ax.legend()
-		# ax2.legend()
-		# fig.savefig(f"plots/lorenz/fiddle_correlation_integrals_{n}.pdf")
+		ls_tarX, Cs_tarX, ls_xhat, Cs_xhat = [], [], [], []
+		for l in [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 6, 8, 10]:
+			l_tarX, C_tarX = measure_correlation_integral(target[2000:], l=l, N=10000, seed=seed)
+			l_xhat, C_xhat = measure_correlation_integral(xhat[2000:], l=l, N=10000, seed=seed)
+			if C_tarX > 0:
+				ls_tarX.append(l_tarX)
+				Cs_tarX.append(C_tarX)
+			if C_xhat > 0:
+				ls_xhat.append(l_xhat)
+				Cs_xhat.append(C_xhat)
+		slope_tarX, intercept_tarX, r_tarX, p_tarX, se_tarX = linregress(np.log2(ls_tarX), np.log2(Cs_tarX))
+		slope_xhat, intercept_xhat, r_xhat, p_xhat, se_xhat = linregress(np.log2(ls_xhat), np.log2(Cs_xhat))
+		error_tarX = slope_tarX / 2.05
+		error_xhat = slope_xhat / 2.05
+		fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((12,6)), sharey=True)
+		ax.scatter(np.log2(ls_xhat), np.log2(Cs_xhat))
+		ax2.scatter(np.log2(ls_tarX), np.log2(Cs_tarX))
+		ax.plot(np.log2(ls_xhat), intercept_xhat+slope_xhat*np.log2(ls_xhat), label=f'slope={slope_xhat:.3}, r={r_xhat:.3}, p={p_xhat:.3f}')
+		ax2.plot(np.log2(ls_tarX), intercept_tarX+slope_tarX*np.log2(ls_tarX), label=f'slope={slope_tarX:.3}, r={r_tarX:.3}, p={p_tarX:.3f}')
+		ax.set(xlabel='log(l)', ylabel='log(C)', title='xhat')
+		ax2.set(xlabel='log(l)', ylabel='log(C)', title='target')
+		ax.legend()
+		ax2.legend()
+		fig.savefig(f"plots/lorenz/fiddle_correlation_integrals_{n}.pdf")
 
 
-
-run(nEns=100, t=200, nTrain=5, nTest=5, r=35, intercept=0.5, tKick=1e-3, tTrans=0, noise_drive=True, load=[])
+run(nEns=100, t=200, nTrain=3, nTest=3, r=40, intercepts=Uniform(-1, 1), spk_thr=100, noise_freq=20.0, noise_rms=0.2,
+	reg=1e-1, evals=20, load=[])

@@ -17,6 +17,8 @@ import neuron
 import matplotlib.pyplot as plt
 import matplotlib.font_manager
 import seaborn as sns
+palette = sns.color_palette('dark')
+sns.set_palette(palette)
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
@@ -123,76 +125,72 @@ def run(neuron_type, nTrain, tTrain, tTest, rate, intercept, eRate,
     return times, tarX, aEns, aTarA
 
 def compare(neuron_types, nTrain=10, tTrain=10, tTest=100, rate=30, intercept=-0.3,
-        eRates=[3e-7, 3e-6, 3e-7, 1e-7], nBins=21, tPlot=10, load=False):
+        eRates=[3e-7, 3e-6, 3e-7, 1e-7], nBins=21, tPlot=10, load=False, replot=False):
     
     bins = np.linspace(-1, 1, nBins)
-    activities = []
-    binned_activities = []
-    mean_activities = []
-    CI_activities = []
-    for i, neuron_type in enumerate(neuron_types):
-        times, tarX, aEns, aTarA = run(neuron_type, nTrain, tTrain, tTest, rate, intercept, eRate=eRates[i], load=load)
-        activities.append(aEns)
+    if replot:
+        data = np.load("data/tuning_curve_final.npz")
+        times, tarX, activities, CI_activities, mean_activities = data['times'], data['tarX'], data['activities'], data['CI_activities'], data['mean_activities']
+        neuron_types.append('ReLu()')
+    else:
+        activities = []
+        binned_activities = []
+        mean_activities = []
+        CI_activities = []
+        for i, neuron_type in enumerate(neuron_types):
+            times, tarX, aEns, aTarA = run(neuron_type, nTrain, tTrain, tTest, rate, intercept, eRate=eRates[i], load=load)
+            activities.append(aEns)
+            binned_activities.append([])
+            mean_activities.append(np.zeros((nBins, 1)))
+            CI_activities.append(np.zeros((2, nBins)))
+            for b in range(len(bins)):
+                binned_activities[i].append([])
+            for t in range(len(times)):
+                idx = (np.abs(bins - tarX[t])).argmin()
+                binned_activities[i][idx].append(aEns[t][0])
+            for b in range(len(bins)):
+                mean_activities[i][b] = np.mean(binned_activities[i][b])
+                if mean_activities[i][b] > 0:
+                    CI_activities[i][0][b] = sns.utils.ci(binned_activities[i][b], which=95)[0]
+                    CI_activities[i][1][b] = sns.utils.ci(binned_activities[i][b], which=95)[1]
+        # bin target activities
+        neuron_types.append('ReLu()')
+        activities.append(aTarA)
         binned_activities.append([])
         mean_activities.append(np.zeros((nBins, 1)))
         CI_activities.append(np.zeros((2, nBins)))
         for b in range(len(bins)):
-            binned_activities[i].append([])
+            binned_activities[-1].append([])
         for t in range(len(times)):
             idx = (np.abs(bins - tarX[t])).argmin()
-            binned_activities[i][idx].append(aEns[t][0])
+            binned_activities[-1][idx].append(aTarA[t][0])
         for b in range(len(bins)):
-            mean_activities[i][b] = np.mean(binned_activities[i][b])
-            if mean_activities[i][b] > 0:
-                CI_activities[i][0][b] = sns.utils.ci(binned_activities[i][b], which=95)[0]
-                CI_activities[i][1][b] = sns.utils.ci(binned_activities[i][b], which=95)[1]
+            mean_activities[-1][b] = np.mean(binned_activities[-1][b])
+            if mean_activities[-1][b] > 0:
+                CI_activities[-1][0][b] = sns.utils.ci(binned_activities[-1][b], which=95)[0]
+                CI_activities[-1][1][b] = sns.utils.ci(binned_activities[-1][b], which=95)[1]
+        np.savez("data/tuning_curve_final.npz",
+            times=times, tarX=tarX, activities=activities, CI_activities=CI_activities, mean_activities=mean_activities)
 
-    # bin target activities
-    neuron_types.append('ReLu()')
-    activities.append(aTarA)
-    binned_activities.append([])
-    mean_activities.append(np.zeros((nBins, 1)))
-    CI_activities.append(np.zeros((2, nBins)))
-    for b in range(len(bins)):
-        binned_activities[-1].append([])
-    for t in range(len(times)):
-        idx = (np.abs(bins - tarX[t])).argmin()
-        binned_activities[-1][idx].append(aTarA[t][0])
-    for b in range(len(bins)):
-        mean_activities[-1][b] = np.mean(binned_activities[-1][b])
-        if mean_activities[-1][b] > 0:
-            CI_activities[-1][0][b] = sns.utils.ci(binned_activities[-1][b], which=95)[0]
-            CI_activities[-1][1][b] = sns.utils.ci(binned_activities[-1][b], which=95)[1]
-
-    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
-    ax.plot(times, tarX, label="input", color='k')
-    ax.axhline(intercept, color='k', linestyle=':', linewidth=0.5)
-    ax.set(xlabel='times (s)', ylabel=r"$\mathbf{x}(t)$", xlim=((0, tPlot)), xticks=((0, tPlot)), ylim=((-1, 1)), yticks=((-1, intercept, 1)))
-    plt.tight_layout()
-    fig.savefig(f'plots/figures/tuning_curve_input.pdf')
-    fig.savefig(f'plots/figures/tuning_curve_input.svg')
-
-    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=((5.25, 6)), gridspec_kw={'height_ratios': [1,1,2]})
+    axes[0].plot(times, tarX, label="input", color='k')
+    axes[0].axhline(intercept, color='k', linestyle=':', linewidth=0.5)
+    axes[0].set(xlabel=None, ylabel=r"$\mathbf{x}(t)$", xlim=((0, tPlot)), xticks=(()), ylim=((-1, 1)), yticks=((-1, intercept, 1)))
     for i in range(len(neuron_types)):
-        ax.plot(times, activities[i], linewidth=0.3)
-    ax.axhline(rate, color='k', linestyle='--', linewidth=0.5)
-    ax.set(xlabel='time (s)', ylabel=r"$a(t)$", xlim=((0, tPlot)), xticks=((0, tPlot)), ylim=((0, rate+5)), yticks=((0, rate)))
-    plt.tight_layout()
-    fig.savefig(f'plots/figures/tuning_curve_activity.pdf')
-    fig.savefig(f'plots/figures/tuning_curve_activity.svg')
-
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 2.5)))
+        axes[1].plot(times, activities[i], linewidth=0.3)
+    axes[1].set(xlabel='time (s)', ylabel=r"$a(t)$", xlim=((0, tPlot)), xticks=((0, tPlot)), ylim=((0, rate+5)), yticks=((0, rate)))
     for i in range(len(neuron_types)):
-        ax.fill_between(bins, CI_activities[i][0], CI_activities[i][1], alpha=0.1)
-        ax.plot(bins, mean_activities[i], label=str(neuron_types[i])[:-2])
-    ax.axhline(rate, color='k', linestyle="--", label="target y-intercept", linewidth=0.5)
-    ax.axvline(intercept, color='k', linestyle=":", label="target x-intercept", linewidth=0.5)
-    ax.set(xlim=((-1, 1)), ylim=((0, rate+5)), xticks=((-1, intercept, 1)), yticks=((0, rate)),
-        xlabel=r"Input State $\mathbf{x}$", ylabel=r"Neural Activity $a$ (Hz)")
-    ax.legend(loc='upper left', frameon=False)
+        axes[2].fill_between(bins, CI_activities[i][0], CI_activities[i][1], alpha=0.1)
+        axes[2].plot(bins, mean_activities[i], label=str(neuron_types[i])[:-2])
+    axes[2].axhline(rate, color='k', linestyle="--", label="target y-intercept", linewidth=0.5)
+    axes[2].axvline(intercept, color='k', linestyle=":", label="target x-intercept", linewidth=0.5)
+    axes[2].set(xlim=((-1, 1)), ylim=((0, rate+5)), xticks=((-1, intercept, 1)), yticks=((0, rate)),
+        xlabel=r"$\mathbf{x}$", ylabel=r"$a$ (Hz)")
+    axes[2].legend(loc='upper left', frameon=False)
     plt.tight_layout()
-    fig.savefig("plots/figures/tuning_curve_state.pdf")
-    fig.savefig("plots/figures/tuning_curve_state.svg")
+    # fig.savefig("plots/figures/tuning_curve_combined_v2.pdf")
+    fig.savefig("plots/figures/tuning_curve_combined_v2.svg")
+    # fig.savefig('plots/figures/tuning_curve_combined_v2.tiff', dpi=600, format="tiff", pil_kwargs={"compression": "tiff_lzw"})
 
 def ReLuDistribution():
     m = Uniform(20, 40)
@@ -203,12 +201,13 @@ def ReLuDistribution():
     with nengo.Simulator(model, progress_bar=False) as sim:
         eval_points, activities = tuning_curves(ens, sim)
     fig, ax = plt.subplots(figsize=((5.25, 2)))
-    ax.plot(eval_points, activities)
-    plt.tight_layout()
-    ax.set(ylabel=r"Neural Activity $a$ (Hz)", xlabel=r"Input scalar, $\mathbf{x}$",
+    ax.plot(eval_points, activities, linewidth=0.5)
+    ax.set(ylabel=r"Neural Activity $a$ (Hz)", xlabel=r"Input $\mathbf{x}$",
         xlim=((-1, 1)), xticks=((-1, 1)), ylim=((0, 40)), yticks=((0, 40)))
-    fig.savefig('plots/figures/ReLuDistribution.pdf')
+    plt.tight_layout()
+    # fig.savefig('plots/figures/ReLuDistribution.pdf')
     fig.savefig('plots/figures/ReLuDistribution.svg')
+    # fig.savefig('plots/figures/ReLuDistribution.tiff', dpi=600, format="tiff", pil_kwargs={"compression": "tiff_lzw"})
 
 def voltageTrace(neuron_type, tTest=1, dt=1e-3,
         fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), rate=30, intercept=-0.3):
@@ -226,8 +225,8 @@ def voltageTrace(neuron_type, tTest=1, dt=1e-3,
     ax.set(xlabel='time (s)')
     fig.savefig(f'plots/tuning_curve/{neuron_type}/voltage.pdf')
 
-# ReLuDistribution()
+ReLuDistribution()
 # voltageTrace(NEURON('Pyramidal'))
 # compare([NEURON('Interneuron')], eRates=[1e-8], load=False)
 # compare([NEURON('Pyramidal')], eRates=[1e-7], load=False)
-compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=False)
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=True, replot=True)

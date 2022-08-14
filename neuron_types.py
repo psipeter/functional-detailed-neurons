@@ -11,7 +11,7 @@ import warnings
 
 class AMPA(nengo.synapses.Synapse):
 	def __init__(self): super().__init__()
-        
+		
 class GABA(nengo.synapses.Synapse):
 	def __init__(self): super().__init__()
 
@@ -426,3 +426,32 @@ def nrnReset(sim, model):
 			del(conn.netcons)
 		if hasattr(conn, 'nrnConnect'):
 			del(conn.nrnConnect)
+
+
+
+class PoissonSpikingReLU(NeuronType):
+
+	probeable = ('spikes')
+	
+	def __init__(self, seed):
+		super(PoissonSpikingReLU, self).__init__()
+		self.rng = np.random.RandomState(seed=seed)
+		self.amplitude = 1
+
+	def gain_bias(self, max_rates, intercepts):
+		"""Determine gain and bias by shifting and scaling the lines."""
+		max_rates = np.array(max_rates, dtype=float, copy=False, ndmin=1)
+		intercepts = np.array(intercepts, dtype=float, copy=False, ndmin=1)
+		gain = max_rates / (1 - intercepts)
+		bias = -intercepts * gain
+		return gain, bias
+
+	def max_rates_intercepts(self, gain, bias):
+		"""Compute the inverse of gain_bias."""
+		intercepts = -bias / gain
+		max_rates = gain * (1 - intercepts)
+		return max_rates, intercepts
+
+	def step_math(self, dt, J, output, *states):
+		# Note: J is the desired output rate, not the input current
+		output[...] = np.maximum(0.0,  (self.amplitude / dt) * self.rng.poisson(np.abs(J) * dt, output.size)* np.sign(J))

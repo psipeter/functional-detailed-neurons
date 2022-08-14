@@ -19,6 +19,8 @@ import neuron
 import matplotlib.pyplot as plt
 
 import seaborn as sns
+palette = sns.color_palette('dark')
+sns.set_palette(palette)
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
@@ -41,7 +43,7 @@ def makeSignal(t, dt=0.001, value=1, seed=0):
     stim_func = lambda t: stim[int(t/dt)]
     return stim_func
 
-def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
+def go(neuron_type, t=10, seed=0, dt=0.001, nPre=100, nEns=100,
     m=Uniform(20, 40), eRate=1e-6, dRate=3e-6,
     fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1),
     d=None, e=None, w=None, learn=False, stim_func=lambda t: 0):
@@ -96,7 +98,7 @@ def go(neuron_type, t=10, seed=0, dt=0.001, nPre=300, nEns=10,
     )
 
 def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
-    nEns=30, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), load=[]):
+    nEns=100, dt=1e-3, fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), load=[]):
 
     print(f'Neuron type: {neuron_type}')
     if 1 in load:
@@ -118,8 +120,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
 
     if 2 in load:
         data = np.load(f"data/adaptation_{neuron_type}.npz")
-        dOutNoF, dOut, tauRiseOut, tauFallOut = data['dOutNoF'], data['dOut'], data['tauRiseOut'], data['tauFallOut']
-        fOut = DoubleExp(tauRiseOut, tauFallOut)
+        dDefault, dTrain, rise, fall = data['dDefault'], data['dTrain'], data['rise'], data['fall']
+        fTrain = DoubleExp(rise, fall)
     else:
         print('train readout decoders and filters')
         targets = np.zeros((nTrain, int(tTrain/dt), 1))
@@ -133,15 +135,15 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
             targets[n] = fTarget.filt(data['tarX'], dt=dt)
             spikes[n] = data['ens']
 
-        dOut, tauRiseOut, tauFallOut = trainDF(spikes, targets, nTrain, dt=dt, network="adaptation", ens='ens1', neuron_type=neuron_type)
-        fOut = DoubleExp(tauRiseOut, tauFallOut)
-        dOutNoF = trainD(spikes, targets, nTrain, fTarget, dt=dt)
+        dTrain, rise, fall = trainDF(spikes, targets, nTrain, dt=dt, network="adaptation", ens='ens1', neuron_type=neuron_type)
+        fTrain = DoubleExp(rise, fall)
+        dDefault = trainD(spikes, targets, nTrain, fTarget, dt=dt)
         np.savez(f"data/adaptation_{neuron_type}.npz",
             d=d, e=e, w=w,
-            dOutNoF=dOutNoF, dOut=dOut, tauRiseOut=tauRiseOut, tauFallOut=tauFallOut)
+            dDefault=dDefault, dTrain=dTrain, rise=rise, fall=fall)
 
     dfs = []
-    columns = ('neuron_type', 'n', 'error', 'filter')
+    columns = ('neuron_type', 'trial', 'filter', 't', 'tarX', 'xhat', 'error')
     print('estimating error')
     for n in range(nTest):
         stim_func = makeSignal(tTest, dt=dt, seed=100+n)
@@ -151,101 +153,67 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
             fTarget=fTarget, fSmooth=fSmooth, stim_func=stim_func)
         times = data['times']
         tarX = fTarget.filt(data['tarX'], dt=dt)
-        aEnsNoF = fTarget.filt(data['ens'], dt=dt)
-        aEns = fOut.filt(data['ens'], dt=dt)
-        xhatNoF = np.dot(aEnsNoF, dOutNoF)
-        xhat = np.dot(aEns, dOut)
-        dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, rmse(xhatNoF, tarX), "default"]], columns=columns))
-        dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, rmse(xhat, tarX), "trained"]], columns=columns))
+        aEnsDefault = fTarget.filt(data['ens'], dt=dt)
+        aEnsTrain = fTrain.filt(data['ens'], dt=dt)
+        xhatDefault = np.dot(aEnsDefault, dDefault)
+        xhatTrain = np.dot(aEnsTrain, dTrain)
+        for idx, t in enumerate(times):
+            dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, 'default', t, tarX[idx,0], xhatDefault[idx,0], np.abs(tarX[idx,0]-xhatDefault[idx,0])]], columns=columns))
+            dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, 'trained', t, tarX[idx,0], xhatTrain[idx,0], np.abs(tarX[idx,0]-xhatTrain[idx,0])]], columns=columns))
 
-    return times, tarX, xhatNoF, xhat, tauRiseOut, tauFallOut, dfs
+    return dfs
 
-    # print('estimating spike adaptation')
-    # dfsISI = []
-    # columnsISI = ('neuron_type', 'n', 'ISI variance')
-    # stim_func = lambda t: 0
-    # data = go(neuron_type,
-    #     nEns=nEns, t=tTest, dt=dt,
-    #     d=d, e=e, w=w,
-    #     fTarget=fTarget, fSmooth=fSmooth, stim_func=stim_func)
-    # for n in range(nEns):
-    #     spike_times = np.where(data['ens'][:,n]>0)[0]
-    #     if len(spike_times) > 3:
-    #         ISI = [x - spike_times[i-1] for i, x in enumerate(spike_times)][1:]
-    #         # ISIvar = np.std(ISI)
-    #         ISIvar = (np.max(ISI) - np.min(ISI)) / np.max(ISI)
-    #     else:
-    #         ISIvar = np.nan
-    #     dfsISI.append(pd.DataFrame([[str(neuron_type)[:-2], n, ISIvar]], columns=columnsISI))
-    # return times, tarX, xhatNoF, xhat, dfs, dfsISI
+def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[], replot=False):
 
-def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[]):
+    if not replot:
+        dfs = []
+        for i, neuron_type in enumerate(neuron_types):
+            df = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
+            dfs.extend(df)
+        data = pd.concat(dfs, ignore_index=True)
+        data.to_pickle(f"data/adaptation.pkl")
+    else:
+        data = pd.read_pickle(f"data/adaptation.pkl")
+    print(data)
 
-    dfsAll = []
-    # dfsAllISI = []
-    columns = ('neuron_type', 'n', 'error', 'filter')
-    # columnsISI = ('neuron_type', 'n', 'ISI variance')
-    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
-    fig2, ax2 = plt.subplots(figsize=((5.25, 1.5)))
-    fig3, ax3 = plt.subplots(figsize=((5.25, 1.5)))
-    tFilter = 0.3  # seconds
+    fig, axes = plt.subplots(nrows=4, ncols=1, figsize=((5.2, 6)), gridspec_kw={'height_ratios': [2,2,1,1]})
+    data_tarX = data.query("filter=='default' & trial==0 & neuron_type=='LIF'")
+    sns.lineplot(data=data_tarX, x='t', y='tarX', color='k', ax=axes[0], linewidth=0.5)
     for i, neuron_type in enumerate(neuron_types):
-        # times, tarX, xhatNoF, xhat, dfs, dfsISI = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
-        times, tarX, xhatNoF, xhat, tauRise, tauFall, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
-        fTrained = DoubleExp(tauRise, tauFall)
-        dfsAll.extend(dfs)
-        # dfsAllISI.extend(dfsISI)
-        ax.plot(times, xhatNoF, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
-        ax2.plot(times, xhat, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
-        ax3.plot(fTrained.ntrange(int(tFilter*1000)), fTrained.impulse(int(tFilter*1000)),
-            label=f"{str(neuron_type)[:-2]}: " + r"$\tau_{\mathrm{rise}}=$"+f"{tauRise:.2f}s, " + r"$\tau_{\mathrm{fall}}=$"+f"{tauFall:.2f}s")
-    df = pd.concat([df for df in dfsAll], ignore_index=True)
-    # dfISI = pd.concat([df for df in dfsAllISI], ignore_index=True)
-
-    ax.plot(times, tarX, label='target', color='k', linewidth=0.5)
-    ax.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\mathbf{\hat{x}}(t)$, Default Filter")
-    ax.legend(loc='upper right', frameon=False)
-    plt.tight_layout()
-    fig.savefig('plots/figures/adaptation_state_default.pdf')
-    fig.savefig('plots/figures/adaptation_state_default.svg')
-
-    ax2.plot(times, tarX, label='target', color='k', linewidth=0.5)
-    ax2.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\mathbf{\hat{x}}(t)$, Trained Filter")
-    ax2.legend(loc='upper right', frameon=False)
-    fig2.savefig('plots/figures/adaptation_state_trained.pdf')
-    fig2.savefig('plots/figures/adaptation_state_trained.svg')
-
+        nt = str(neuron_type)[:-2]
+        data_xhat = data.query("filter=='default' & trial==0 & neuron_type==@nt")
+        sns.lineplot(data=data_xhat, x='t', y='xhat', color=palette[i], ax=axes[0], linewidth=0.5)
+    sns.lineplot(data=data_tarX, x='t', y='tarX', color='k', ax=axes[1], linewidth=0.5)
+    for i, neuron_type in enumerate(neuron_types):
+        nt = str(neuron_type)[:-2]
+        data_xhat = data.query("filter=='trained' & trial==0 & neuron_type==@nt")
+        sns.lineplot(data=data_xhat, x='t', y='xhat', color=palette[i], ax=axes[1], linewidth=0.5)
+    tFilter = 0.3 
+    for i, neuron_type in enumerate(neuron_types):
+        loaded = np.load(f"data/adaptation_{neuron_type}.npz")
+        rise, fall = loaded['rise'], loaded['fall']
+        fTrain = DoubleExp(rise, fall)
+        nt = str(neuron_type)[:-2]
+        if nt=='NEURON': nt='Pyramidal'
+        axes[2].plot(fTrain.ntrange(int(tFilter*1000)), fTrain.impulse(int(tFilter*1000)), color=palette[i])
+            # label=f"{str(neuron_type)[:-2]}: " + r"$\tau_{\mathrm{rise}}=$"+f"{rise:.2f}s, " + r"$\tau_{\mathrm{fall}}=$"+f"{fall:.2f}s")
     fTarget = DoubleExp(1e-3, 1e-1)
-    ax3.plot(fTarget.ntrange(int(tFilter*1000)), fTarget.impulse(int(tFilter*1000)), color='k',
-        label=r"Default: $\tau_{\mathrm{rise}}=0.001s, \tau_{\mathrm{fall}}=0.1s$")
-    ax3.legend(loc='upper right', frameon=False)
-    ax3.set(xlim=((0, tFilter)), xticks=((0, tFilter)), ylabel=r'Filter $H(s)$', yticks=((0, 10)), ylim=((0, 10)), xlabel='time (s)')
-    fig3.savefig('plots/figures/adaptation_filter.pdf')
-    fig3.savefig('plots/figures/adaptation_filter.svg')
-
-    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
-    sns.barplot(data=df, x='neuron_type', y='error', hue='filter', ax=ax)
-    ax.set(xlabel='', ylabel='Error', ylim=((0, 0.2)), yticks=((0, 0.2)))
+    axes[2].plot(fTarget.ntrange(int(tFilter*1000)), fTarget.impulse(int(tFilter*1000)), color='k')
+        # label=r"Default: $\tau_{\mathrm{rise}}=0.001$s, $\tau_{\mathrm{fall}}=0.1$s"))
+    sns.barplot(data=data, x='neuron_type', y='error', hue='filter', ax=axes[3])
+    axes[0].set(ylim=((-1,1)), yticks=((-1,1)), xlim=((0, tTest)), xticks=(()), xlabel=None, ylabel=r"$\mathbf{\hat{x}}(t)$", title="default filter")
+    axes[1].set(ylim=((-1,1)), yticks=((-1,1)), xlim=((0, tTest)), xticks=((0, tTest)), xlabel="time (s)", ylabel=r"$\mathbf{\hat{x}}(t)$", title="trained filter")
+    axes[2].set(ylim=((0, 10)), yticks=((0,10)), ylabel=r"$h(t)$", xlabel='time (s)', title='filter impulse response', xlim=((0, tFilter)), xticks=((0, tFilter)))
+    axes[3].set(ylim=((0, 0.15)), yticks=((0,0.15)), ylabel="error", title='improvements with trained filters', xlabel=None)
+    axes[3].legend(frameon=False)
     plt.tight_layout()
-    # ax.legend(loc='upper right', frameon=False)
-    fig.savefig('plots/figures/adaptation_barplot.pdf')
-    fig.savefig('plots/figures/adaptation_barplot.svg')
+    fig.savefig("plots/figures/adaptation_combined_v2.svg")
 
-    # fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, figsize=((6, 2)), sharex=True)
-    # sns.barplot(data=df, x='neuron_type', y='error', hue='filter', ax=ax)
-    # ax.set(xlabel='', ylabel='Error', ylim=((0, 0.2)), yticks=((0, 0.2)))
-    # ax.legend(loc='upper right', frameon=False)
-    # sns.barplot(data=dfISI, x='neuron_type', y='ISI variance', ax=ax2)
-    # ax2.set(xlabel='', ylim=((0, 0.8)), yticks=((0, 0.8)))
-    # sns.despine()
-    # fig.savefig('plots/figures/adaptation_barplot.pdf')
-    # fig.savefig('plots/figures/adaptation_barplot.svg')
+# def print_time_constants():
+#     for neuron_type in ['LIF()', 'Izhikevich()', 'Wilson()', 'Pyramidal()']:
+#         data = np.load(f"data/adaptation_{neuron_type}.npz")
+#         rise, fall = 1000*data['tauRiseOut'], 1000*data['tauFallOut']
+#         print(f"{neuron_type}:  \t rise {rise:.3}, fall {fall:.5}")
+# print_time_constants()
 
-def print_time_constants():
-    for neuron_type in ['LIF()', 'Izhikevich()', 'Wilson()', 'Pyramidal()']:
-        data = np.load(f"data/adaptation_{neuron_type}.npz")
-        rise, fall = 1000*data['tauRiseOut'], 1000*data['tauFallOut']
-        print(f"{neuron_type}:  \t rise {rise:.3}, fall {fall:.5}")
-print_time_constants()
-
-# compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[], replot=True)

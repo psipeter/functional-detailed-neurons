@@ -19,6 +19,8 @@ import neuron
 import matplotlib.pyplot as plt
 
 import seaborn as sns
+palette = sns.color_palette('dark')
+sns.set_palette(palette)
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
@@ -214,7 +216,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
             d2=d2, tauRise2=tauRise2, tauFall2=tauFall2)
 
     dfs = []
-    columns = ('neuron_type', 'n', 'error1', 'error2')
+    columns = ('neuron_type', 'trial', 't', 'xhat', 'tarX', 'error')
     print('estimating error')
     for n in range(nTest):
         stim_func = makeSignal(tTest, dt=dt, seed=100+n)
@@ -230,52 +232,43 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
         aEns2 = f2.filt(data['ens2'], dt=dt)
         xhat1 = np.dot(aEns1, d1)
         xhat2 = np.dot(aEns2, d2)
-        error1 = rmse(xhat1, tarX1)
-        error2 = rmse(xhat2, tarX2)
-        dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error1, error2]], columns=columns))
+        for idx, t in enumerate(times):
+            dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, t, xhat2[idx,0], tarX2[idx,0], rmse(xhat2[idx,0], tarX2[idx,0])]], columns=columns))
 
-    print(f'{neuron_type} observed firing rate range: {np.min(np.max(aEns2, axis=0)):.0f} to {np.max(aEns2):.0f}Hz')
-    return times, tarX1, tarX2, xhat1, xhat2, dfs
+    return dfs
 
-def compare(neuron_types, eRates=[3e-7, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[]):
+def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[], replot=False):
 
-    dfsAll = []
-    columns = ('neuron_type', 'n', 'error1', 'error2')
-    fig, ax = plt.subplots(figsize=((5.25, 1.5)))
-    fig2, ax2 = plt.subplots(figsize=((5.25, 1.5)))
+    if not replot:
+        dfs = []
+        for i, neuron_type in enumerate(neuron_types):
+            df = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
+            dfs.extend(df)
+        data = pd.concat(dfs, ignore_index=True)
+        data.to_pickle(f"data/identity.pkl")
+    else:
+        data = pd.read_pickle(f"data/identity.pkl")
+    print(data)
+
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=((5.2, 3)), gridspec_kw={'height_ratios': [1,1]})
+    data_tarX = data.query("trial==0 & neuron_type=='LIF'")
+    sns.lineplot(data=data_tarX, x='t', y='tarX', color='k', ax=axes[0], linewidth=0.5)
     for i, neuron_type in enumerate(neuron_types):
-        times, tarX1, tarX2, xhat1, xhat2, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
-        dfsAll.extend(dfs)
-        ax.plot(times, xhat1, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
-        ax2.plot(times, xhat2, label=f"{str(neuron_type)[:-2]}", linewidth=0.5)
-    df = pd.concat([df for df in dfsAll], ignore_index=True)
-
-    ax.plot(times, tarX1, label='target', color='k', linewidth=0.5)
-    ax.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
-    ax.legend(loc='upper right', frameon=False)
+        nt = str(neuron_type)[:-2]
+        data_xhat = data.query("trial==0 & neuron_type==@nt")
+        sns.lineplot(data=data_xhat, x='t', y='xhat', color=palette[i], ax=axes[0], linewidth=0.5)
+    sns.barplot(data=data, x='neuron_type', y='error', ax=axes[1])
+    axes[0].set(ylim=((-1,1)), yticks=((-1,1)), xlim=((0, tTest)), xticks=((0, tTest)), xlabel="time (s)", ylabel=r"$\mathbf{\hat{x}}(t)$")
+    axes[1].set(ylim=((0, 0.1)), yticks=((0,0.1)), ylabel="error", xlabel=None)
     plt.tight_layout()
-    fig.savefig('plots/figures/identity_ens1.pdf')
-    fig.savefig('plots/figures/identity_ens1.svg')
+    fig.savefig("plots/figures/identity_combined_v2.svg")
 
-    ax2.plot(times, tarX2, label='target', color='k', linewidth=0.5)
-    ax2.set(xlim=((0, tTest)), xticks=(()), ylim=((-1, 1)), yticks=((-1, 1)), ylabel=r"$\hat{f}(\mathbf{x}(t))$")
-    ax2.legend(loc='upper right', frameon=False)
-    plt.tight_layout()
-    fig2.savefig('plots/figures/identity_ens2.pdf')
-    fig2.savefig('plots/figures/identity_ens2.svg')
-
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((5.25, 1.5)))
-    sns.barplot(data=df, x='neuron_type', y='error2', ax=ax)
-    ax.set(xlabel='', ylim=((0, 0.1)), yticks=((0, 0.1)), ylabel='Error')
-    plt.tight_layout()
-    fig.savefig('plots/figures/identity_barplot.pdf')
-    fig.savefig('plots/figures/identity_barplot.svg')
+compare([LIF(), Izhikevich(), Wilson(), NEURON("Pyramidal")], nTest=10, load=[0,1,2,3], replot=False)
 
 def print_time_constants():
     for neuron_type in ['LIF()', 'Izhikevich()', 'Wilson()', 'Pyramidal()']:
         data = np.load(f"data/identity_{neuron_type}.npz")
         rise, fall = 1000*data['tauRise1'], 1000*data['tauFall1']
         print(f"{neuron_type}:  \t rise {rise:.3}, fall {fall:.4}")
-print_time_constants()
+# print_time_constants()
 
-# compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2,3])

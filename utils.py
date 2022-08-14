@@ -154,8 +154,9 @@ def fitSinusoid(xhat, neuron_type, tTrans=0, muFreq=2*np.pi, sigmaFreq=1, base=T
         return {'loss': loss, 'loss2': loss2, 'freq': freq, 'phase': phase, 'mag': mag, 'base': base, 'status': STATUS_OK}
     
     trials = Trials()
+    rstate = np.random.default_rng(seed)
     fmin(objective,
-        rstate=np.random.RandomState(seed=seed),
+        rstate=rstate,
         space=hyperparams,
         algo=tpe.suggest,
 #         algo=hyperopt.rand.suggest,

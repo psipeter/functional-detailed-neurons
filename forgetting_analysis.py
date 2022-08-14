@@ -1,8 +1,11 @@
 import numpy as np
 import scipy as sp
 import matplotlib.pyplot as plt
+import matplotlib
 import seaborn as sns
 import pandas as pd
+palette = sns.color_palette('dark')
+sns.set_palette(palette)
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
@@ -45,7 +48,7 @@ def fit_forgetting_individual(seeds=[], tTest=20, tStart=0, tStep=1, trainDA=0.0
 	columns = ('seed', 'delay_length', 'correct', 'scaled')
 	data = pd.read_pickle(f"data/20s/DRT_trainDA={trainDA}_testDA={testDA}_allseeds.pkl")
 	tSamples = np.arange(tStart, tTest+tStep, tStep)
-	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((6,3)), sharey=True)
+	fig, (ax, ax2) = plt.subplots(nrows=1, ncols=2, figsize=((5.2,2)), sharey=True)
 	# fig2, ax = plt.subplots(figsize=((6,3)))
 	baselines = []
 	taus = []
@@ -83,16 +86,26 @@ def fit_forgetting_individual(seeds=[], tTest=20, tStart=0, tStep=1, trainDA=0.0
 	ax2.set(xlim=((0, tTest+tStep)), xticks=((0, tTest)), xlabel="Time (s)", title="best fit exponential")
 	fig.tight_layout()
 	# fig.legend(loc='upper right')
-	fig.savefig(f'plots/DRT/forgetting_curves.pdf')
+	# fig.savefig(f'plots/figures/forgetting_curves.svg')
 
-	# palette = sns.color_palette("dark")
-	# fig2, ax2 = plt.subplots(figsize=((8.5, 1)))
-	# x = np.array(baselines)
-	# y = np.zeros_like(x)
-	# ax2.axhline(0, color='k', alpha=0.2)
-	# ax2.scatter(x, y, s=100, color=palette[1])
-	# ax2.scatter(np.median(baselines), 0, s=150, facecolors="none", edgecolors=palette[1])
-	# ax2.set(xlim=((50, 100)), xticks=((50, 100)))
+	sns.set(context='paper', style='whitegrid', font='CMU Serif',
+		rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
+	fig, axes = plt.subplots(nrows=1, ncols=2, figsize=((5.2, 0.5)))
+	axes[0].scatter(np.array(baselines), np.zeros_like(baselines), s=20, color=palette[0])
+	axes[0].scatter(np.median(baselines), 0, s=150, facecolors="none", edgecolors=palette[0])
+	axes[0].set(xlim=((50, 100)), xticks=((50, 60, 70, 80, 90, 100)), yticks=(()))
+	axes[1].scatter(np.array(half_lives), np.zeros_like(half_lives), s=20, color=palette[0])
+	axes[1].scatter(np.median(half_lives), 0, s=150, facecolors="none", edgecolors=palette[0])
+	axes[1].set(yticks=(()))
+	axes[1].set_xscale('log')
+	axes[1].set_xticks([1, 10, 30, 60, 120, 300])
+	axes[1].get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+	# fig.savefig('plots/figures/model_forgetting_parameters.svg')
+
+	fig, ax = plt.subplots(figsize=((5.2, 0.5)))
+	ax.set(ylabel='biologically detailed\ncognitive network')
+	fig.savefig("plots/figures/label.svg")
+
 	# fig2.savefig(f"plots/DRT/forgetting_curve_baselines.svg")
 
 	# fig3, ax3 = plt.subplots(figsize=((3, 1)))
@@ -217,8 +230,110 @@ def fit_forgetting(seeds=[], tTest=20, tStart=0.5, trainDA=0.0, testDA=0.0):
 	# fig.savefig(f'plots/DRT/ncues_8/forgetting_curve.pdf')
 	fig.savefig(f'plots/DRT/forgetting_curve.pdf')
 
+def plot_baseline_halflife(seeds=[], tTest=20, tStart=0, tStep=1, trainDA=0.0, testDA=0.0):
+	columns = ('seed', 'delay_length', 'correct', 'scaled')
+	data = pd.read_pickle(f"data/20s/DRT_trainDA={trainDA}_testDA={testDA}_allseeds.pkl")
+	tSamples = np.arange(tStart, tTest+tStep, tStep)
+	model_baselines = []
+	model_halflives = []
+	for seed in seeds:
+		corrects = []
+		for t in range(len(tSamples)-1):
+			times = data.query("seed==@seed")['delay_length'].to_numpy()
+			t0 = tSamples[t]
+			t1 = tSamples[t+1]
+			mean_correct_over_window = np.mean(data.query("seed==@seed & delay_length>=@t0 & delay_length<@t1")['correct'].to_numpy())
+			corrects.append(mean_correct_over_window)
+		corrects = np.array(corrects)
+		idx_start = np.argmax(corrects)
+		t_monotonic = tSamples[1:][idx_start:]
+		c_monotonic = corrects[idx_start:]
+		t_left_aligned = t_monotonic - t_monotonic[0]
+		baseline = c_monotonic[0]
+		def left_aligned_exponential(t, tau):
+			return baseline * np.exp(-t/tau)
+		params, covariance = sp.optimize.curve_fit(left_aligned_exponential, t_left_aligned, c_monotonic)
+		model_baselines.append(baseline)
+		model_halflives.append(params[0]*np.log(2))
+
+	pigeon_baselines = [73,77,82,87,88,89,90,91,94,94,95,96,100]
+	pigeon_baselines_median = 91
+	chimp_baselines = [68,70,78,89,93,93,94,98]
+	chimp_baselines_median = 91 
+	capuchin_baselines = [84,86,92,93,96]
+	capuchin_baselines_median = 92
+	rhesus_baselines = [76,77,88,93,95,95,99,99,100]
+	rhesus_baselines_median = 95
+	dolphin_baselines = [81,93,94,100]
+	dolphin_baselines_median = 97
+	rat_baselines = [93,94,99,100]
+	rat_baselines_median = 99
+
+	pigeon_halflives = [2,3,3,4,4,5,11,12,16,27,28,34,38,41,51]
+	pigeon_halflives_median = 14
+	chimp_halflives = [6,6,19,61,159]
+	chimp_halflives_median = 19
+	rhesus_halflives = [2,15,17,27,29,34,48,155,157]
+	rhesus_halflives_median = 32
+	rat_halflives = [2,4,23,32,34,45,55,72]
+	rat_halflives_median = 35
+	capuchin_halflives = [10,15,16,39,107,302,453]
+	capuchin_halflives_median = 39
+	dolphin_halflives = [41,52,58,62,88,222]
+	dolphin_halflives_median = 60
+
+	sns.set(context='paper', style='whitegrid', font='CMU Serif',
+		rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
+	fig, axes = plt.subplots(nrows=1, ncols=2, figsize=((5.2, 1.5)), sharey=False)
+
+	axes[0].scatter(np.array(pigeon_baselines), 1*np.ones_like(pigeon_baselines), s=2, color=palette[0])
+	axes[0].scatter(pigeon_baselines_median, 1, s=20, facecolor='none', edgecolor=palette[0])
+	axes[0].scatter(np.array(chimp_baselines), 2*np.ones_like(chimp_baselines), s=2, color=palette[0])
+	axes[0].scatter(chimp_baselines_median, 2, s=20, facecolor='none', edgecolor=palette[0])
+	axes[0].scatter(np.array(capuchin_baselines), 3*np.ones_like(capuchin_baselines), s=2, color=palette[0])
+	axes[0].scatter(capuchin_baselines_median, 3, s=20, facecolor='none', edgecolor=palette[0])
+	axes[0].scatter(np.array(model_baselines), 4*np.ones_like(model_baselines), s=2, color=palette[1])
+	axes[0].scatter(np.median(model_baselines), 4, s=20, facecolor='none', edgecolor=palette[1])
+	axes[0].scatter(np.array(dolphin_baselines), 6*np.ones_like(dolphin_baselines), s=2, color=palette[0])
+	axes[0].scatter(np.array(rhesus_baselines), 5*np.ones_like(rhesus_baselines), s=2, color=palette[0])
+	axes[0].scatter(rhesus_baselines_median, 5, s=20, facecolor='none', edgecolor=palette[0])
+	axes[0].scatter(dolphin_baselines_median, 6, s=20, facecolor='none', edgecolor=palette[0])
+	axes[0].scatter(np.array(rat_baselines), 7*np.ones_like(rat_baselines), s=2, color=palette[0])
+	axes[0].scatter(rat_baselines_median, 7, s=20, facecolor='none', edgecolor=palette[0])
+	axes[0].set(xlim=((50, 101)), xticks=((50, 60, 70, 80, 90, 100)),
+		xlabel="zero-delay performance (% correct)",
+		ylim=((0.5, 7.5)), yticks=((1,2,3,4,5,6,7)),
+		yticklabels=(('pigeon', 'chimpanzee', 'capuchin', 'model', 'rhesus', 'dolphin', 'rat')))
+
+	axes[1].scatter(np.array(model_halflives), 1*np.ones_like(model_halflives), s=2, color=palette[1])
+	axes[1].scatter(np.median(model_halflives), 1, s=20, facecolor='none', edgecolor=palette[1])
+	axes[1].scatter(np.array(pigeon_halflives), 2*np.ones_like(pigeon_halflives), s=2, color=palette[0])
+	axes[1].scatter(pigeon_halflives_median, 2, s=20, facecolor='none', edgecolor=palette[0])
+	axes[1].scatter(np.array(chimp_halflives), 3*np.ones_like(chimp_halflives), s=2, color=palette[0])
+	axes[1].scatter(chimp_halflives_median, 3, s=20, facecolor='none', edgecolor=palette[0])
+	axes[1].scatter(np.array(rhesus_halflives), 4*np.ones_like(rhesus_halflives), s=2, color=palette[0])
+	axes[1].scatter(rhesus_halflives_median, 4, s=20, facecolor='none', edgecolor=palette[0])
+	axes[1].scatter(np.array(rat_halflives), 5*np.ones_like(rat_halflives), s=2, color=palette[0])
+	axes[1].scatter(rat_halflives_median, 5, s=20, facecolor='none', edgecolor=palette[0])
+	axes[1].scatter(np.array(capuchin_halflives), 6*np.ones_like(capuchin_halflives), s=2, color=palette[0])
+	axes[1].scatter(capuchin_halflives_median, 6, s=20, facecolor='none', edgecolor=palette[0])
+	axes[1].scatter(np.array(dolphin_halflives), 7*np.ones_like(dolphin_halflives), s=2, color=palette[0])
+	axes[1].scatter(dolphin_halflives_median, 7, s=20,  facecolor='none', edgecolor=palette[0])
+	axes[1].set(xlabel="performance half-life (seconds)", ylim=((0.5, 7.5)), yticks=((1,2,3,4,5,6,7)),
+		yticklabels=(('model', 'pigeon', 'chimp', 'rhesus', 'rat', 'capuchin', 'dolphin')))
+	axes[1].set_xscale('log')
+	axes[1].set_xticks([1, 10, 30, 60, 120, 300])
+	axes[1].get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+	plt.tight_layout()
+	fig.savefig('plots/figures/forgetting_parameters.svg')
+	fig.savefig('plots/figures/forgetting_parameters.pdf')
+
+	print("model median baseline", np.median(model_baselines))
+	print("model median half life", np.median(model_halflives))
+
 seeds = [0,1,2,3,4,5,6,7,8,9]
 # plot_euclidean_forgetting(seeds=seeds)
 # fit_forgetting(seeds=seeds)
-fit_forgetting_individual(seeds=seeds)
+# fit_forgetting_individual(seeds=seeds)
 # fit_forgetting_group(seeds=seeds, median_baseline=B, median_tau=tau)
+plot_baseline_halflife(seeds=seeds)

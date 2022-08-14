@@ -21,6 +21,8 @@ import neuron
 import matplotlib.pyplot as plt
 
 import seaborn as sns
+palette = sns.color_palette('dark')
+sns.set_palette(palette)
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
@@ -254,7 +256,6 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         ax.legend()
         ax.set(yticks=((-1,1)))
         fig.savefig(f'plots/memory/decode_{neuron_type}.pdf')
-    print(f'taus: {tauRise1:.3f}, {tauFall1:.3f}')    
 
     if 2 in load:
         data = np.load(f"data/memory_{neuron_type}.npz")
@@ -289,7 +290,7 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
             "memory", neuron_type, "ens", -1, 0)
 
     dfs = []
-    columns = ('neuron_type', 'n', 'error')
+    columns = ('neuron_type', 'trial', 't', 'xhat0', 'xhat1', 'target0', 'target1', 'error')
     print('estimating error')
     angles = np.linspace(0, 2*np.pi, nTest+1)
     for n in range(nTest):
@@ -305,8 +306,9 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         target = data['inpt']
         aEns = f1.filt(data['ens'], dt=dt)
         xhat = np.dot(aEns, d1)
-        error = rmse(xhat[int(tGate/dt):], target[int(tGate/dt):])
-        dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, error]], columns=columns))
+        for idx, t in enumerate(times):
+            error = rmse(xhat[idx], target[idx]) if t>tGate else 0
+            dfs.append(pd.DataFrame([[str(neuron_type)[:-2], n, t, xhat[idx,0], xhat[idx,1], target[idx,0], target[idx,1], error]], columns=columns))
         
         fig, ax, = plt.subplots()
         ax.plot(times, target, label='target')
@@ -323,40 +325,44 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
         fig.savefig(f'plots/memory/space_{neuron_type}_{n}.pdf')
         plt.close('all')
 
-    return times, target, xhat, dfs
+    return dfs
 
 
-def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[]):
+def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10, nTest=10, tTest=10, load=[], replot=False):
 
-    dfsAll = []
-    columns = ('neuron_type', 'n', 'error')
-    fig, ax = plt.subplots(figsize=((1.5, 1.5)))
+    if not replot:
+        dfs = []
+        for i, neuron_type in enumerate(neuron_types):
+            df = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
+            dfs.extend(df)
+        data = pd.concat(dfs, ignore_index=True)
+        data.to_pickle(f"data/memory.pkl")
+    else:
+        data = pd.read_pickle(f"data/memory.pkl")
+    print(data)
+
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=((5.2, 2)), gridspec_kw={'width_ratios': [1,2]})
+    target0 = data.query("trial==0 & neuron_type=='LIF' & t==0.001")['target0'].to_numpy()[0]
+    target1 = data.query("trial==0 & neuron_type=='LIF' & t==0.001")['target1'].to_numpy()[0]
+    times = np.arange(0, 2*np.pi, 0.001)
+    axes[0].plot(np.sin(times), np.cos(times), color='gray', alpha=0.5, linewidth=0.5, linestyle='--', zorder=1)
+    axes[0].scatter(target0, target1, s=10, color='k', alpha=0.5, zorder=2)
     for i, neuron_type in enumerate(neuron_types):
-        times, target, xhat, dfs = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
-        dfsAll.extend(dfs)
-        ax.plot(xhat[:,0], xhat[:,1], label=f"{str(neuron_type)[:-2]}", linewidth=0.5, zorder=1)
-    df = pd.concat([df for df in dfsAll], ignore_index=True)
-
-    ax.plot(np.sin(times), np.cos(times), color='gray', alpha=0.5, linewidth=0.5, linestyle='--', zorder=1)
-    ax.scatter(target[0,0], target[0,1], s=10, color='k', alpha=0.5, label='target', zorder=2)
-    ax.set(xticks=((-1,1)), yticks=((-1, 1)), xlabel=r"$\mathbf{x}_0$", ylabel=r"$\mathbf{x}_1$")
-    # ax.legend(loc='upper right', frameon=False)
+        nt = str(neuron_type)[:-2]
+        xhat0 = data.query("trial==0 & neuron_type==@nt")['xhat0'].to_numpy()
+        xhat1 = data.query("trial==0 & neuron_type==@nt")['xhat1'].to_numpy()
+        axes[0].plot(xhat0, xhat1, color=palette[i], linewidth=0.5)
+    sns.barplot(data=data.query("t>1"), x='neuron_type', y='error', ax=axes[1])
+    axes[0].set(xticks=((-1,1)), yticks=((-1, 1)), xlim=((-1.2, 1.2)), ylim=((-1.2, 1.2)), xlabel=r"$\mathbf{x}_0$", ylabel=r"$\mathbf{x}_1$")
+    axes[1].set(xlabel='', ylim=((0, 0.3)), yticks=((0, 0.3)), ylabel='Error')
     plt.tight_layout()
-    fig.savefig('plots/figures/memory.pdf')
-    fig.savefig('plots/figures/memory.svg')
+    fig.savefig('plots/figures/memory_combined_v2.svg')
 
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=((3.75, 1.5)))
-    sns.barplot(data=df, x='neuron_type', y='error', ax=ax)
-    ax.set(xlabel='', ylim=((0, 0.5)), yticks=((0, 0.5)), ylabel='Error')
-    plt.tight_layout()
-    fig.savefig('plots/figures/memory_barplot.pdf')
-    fig.savefig('plots/figures/memory_barplot.svg')
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2], replot=True)
 
 def print_time_constants():
     for neuron_type in ['LIF()', 'Izhikevich()', 'Wilson()', 'Pyramidal()']:
         data = np.load(f"data/memory_{neuron_type}.npz")
         rise, fall = 1000*data['tauRise1'], 1000*data['tauFall1']
         print(f"{neuron_type}:  \t rise {rise:.3}, fall {fall:.4}")
-print_time_constants()
-
-# compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[0,1,2])
+# print_time_constants()

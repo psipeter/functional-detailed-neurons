@@ -19,6 +19,8 @@ import neuron
 import matplotlib.pyplot as plt
 
 import seaborn as sns
+palette = sns.color_palette('dark')
+sns.set_palette(palette)
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
 
@@ -147,7 +149,6 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
 
     dfs = []
     columns = ('neuron_type', 'seed', 'rise', 'fall')
-    palette = sns.color_palette("colorblind")
     fig, axes = plt.subplots(nrows=2, ncols=len(neuron_types), figsize=((5.25, 3)), sharey=True)
     for i, neuron_type in enumerate(neuron_types):
         rise, fall = run(neuron_type, nTrain, nTest, tTrain, tTest, eRate=eRates[i], load=load)
@@ -164,8 +165,8 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
         xmax = np.around(np.max(fall), decimals=3)
         xlim = ((xmin, xmax))
         sns.histplot(fall, stat='percent', ax=axes[1][i], bins=20, color=palette[i])
-        axes[1][i].set(xlabel=r'$\tau_2$', xlim=xlim, xticks=xlim,  ylim=((0, 30)), yticks=((0,30)))
+        axes[1][i].set(xlabel=r'$\tau_2$', xlim=xlim, xticks=xlim,  ylim=((0, 20)), yticks=((0,20)))
     plt.tight_layout()
-    fig.savefig("plots/hyperopt_stability/time_constants.pdf")
+    fig.savefig("plots/hyperopt_stability/time_constants.svg")
 
 compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=[1,2])
