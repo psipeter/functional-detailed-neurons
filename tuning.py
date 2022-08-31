@@ -4,7 +4,7 @@ import nengo
 from nengo import SpikingRectifiedLinear as ReLu
 from nengo.dists import Uniform, Choice
 from nengo.solvers import NoSolver
-from nengo.utils.ensemble import tunings
+# from nengo.utils.ensemble import tunings
 
 from nengolib import Lowpass, DoubleExp
 from nengolib.stats import ball, sphere
@@ -229,4 +229,4 @@ def voltageTrace(neuron_type, tTest=1, dt=1e-3,
 # voltageTrace(NEURON('Pyramidal'))
 # compare([NEURON('Interneuron')], eRates=[1e-8], load=False)
 # compare([NEURON('Pyramidal')], eRates=[1e-7], load=False)
-compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=True, replot=True)
+compare([LIF(), Izhikevich(), Wilson(), NEURON('Pyramidal')], load=False, replot=False)

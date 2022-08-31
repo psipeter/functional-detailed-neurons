@@ -35,5 +35,5 @@ Compile NEURON channel mechanisms detailed_neurons
 Run the simulations
 =======
 
-  python identity.py
+  python tuning.py
 
