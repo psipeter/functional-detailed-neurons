@@ -13,8 +13,7 @@ from nengolib.synapses import ss2sim
 from nengolib.signal import LinearSystem, s
 
 from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
-from utils import LearningNode, trainDF, fitSinusoid
-from plotter import plotActivities
+from utils import LearningNode, trainDF, fitSinusoid, plotActivities
 
 import neuron
 
@@ -209,16 +208,16 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
             np.savez(f"data/memory_{neuron_type}.npz",
                 dB=dB, eB=eB, wB=wB,
                 d0=d0, e0=e0, w0=w0)
-            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
-                "memory", neuron_type, "pre", n, nTrain)
+            # plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+            #     "memory", neuron_type, "pre", n, nTrain)
         stim_func1, stim_func2 = makeSignalCircle(tTrain, dt=dt, seed=0)
         data = go(neuron_type, learn0=True, eRate=0,
             nEns=nEns, t=tTrain, dt=dt,
             dB=dB, eB=eB, wB=wB,
             d0=d0, e0=e0, w0=w0,
             fTarget=fTarget, fSmooth=fSmooth, stim_func1=stim_func1, stim_func2=stim_func2)
-        plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
-            "memory", neuron_type, "pre", -1, 0)
+        # plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+        #     "memory", neuron_type, "pre", -1, 0)
 
     if 1 in load:
         data = np.load(f"data/memory_{neuron_type}.npz")
@@ -277,8 +276,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
                 d0=d0, e0=e0, w0=w0,
                 d1=d1, tauRise1=tauRise1, tauFall1=tauFall1,
                 e1=e1, w1=w1)
-            plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
-                "memory", neuron_type, "ens", n, nTrain)
+            # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
+            #     "memory", neuron_type, "ens", n, nTrain)
         stim_func1, stim_func2 = makeSignalCircle(tTrain, dt=dt, seed=0)
         data = go(neuron_type, learn1=True, eRate=0,
             nEns=nEns, t=tTrain, dt=dt,
@@ -286,8 +285,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tGate=1,
             w0=w0,
             d1=d1, e1=e1, w1=w1, f1=f1,
             fTarget=fTarget, fSmooth=fSmooth, stim_func1=stim_func1, stim_func2=stim_func2)
-        plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
-            "memory", neuron_type, "ens", -1, 0)
+        # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['ens3'], dt=dt),
+        #     "memory", neuron_type, "ens", -1, 0)
 
     dfs = []
     columns = ('neuron_type', 'trial', 't', 'xhat0', 'xhat1', 'target0', 'target1', 'error')

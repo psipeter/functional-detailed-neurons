@@ -4,6 +4,8 @@ from hyperopt import fmin, tpe, hp, STATUS_OK, Trials, base
 from nengolib import Lowpass, DoubleExp
 from nengo.solvers import LstsqL2
 from nengo.utils.numpy import rmse
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 class LearningNode(nengo.Node):
     def __init__(self, pre, post, dim, conn, w=None, e=None, d=None, eRate=1e-6, dRate=3e-6, exc=False, inh=False):
@@ -172,3 +174,35 @@ def fitSinusoid(xhat, neuron_type, tTrans=0, muFreq=2*np.pi, sigmaFreq=1, base=T
     base = best['result']['base']
         
     return loss, loss2, freq, phase, mag, base
+
+def plotActivities(times, aEns, aTarA, network, neuron_type, ens, nT, nTrain):
+    if nT==0 or (nT+1)==nTrain:
+        for n in range(aTarA.shape[1]):
+            ymax1 = np.max(aEns[:,n])
+            ymax2 = np.max(aTarA[:,n])
+            ymax = np.max([ymax1, ymax2]) if ymax1+ymax2>0 else 1
+            fig, ax = plt.subplots(figsize=((6, 2)))
+            ax.plot(times, aTarA[:,n], alpha=0.5, label='target')
+            ax.plot(times, aEns[:,n], alpha=0.5, label=neuron_type)
+            ax.set(xlabel='time (s)', ylabel=r"$a(t)$ (Hz)",
+                # xlim=((0, times[-1])), xticks=((0, times[-1])),
+                xlim=((0, times[-1])), ylim=((0, ymax)), xticks=((0, times[-1])), yticks=((0, ymax)))
+            plt.legend(loc='upper right')
+            sns.despine()
+            plt.tight_layout()
+            plt.savefig(f'plots/{network}/{neuron_type}/{ens}/{nT+1}p{nTrain}_{n}.pdf')
+            plt.close('all')
+
+def checkTrain(times, aEns, aTar, stage):
+    for n in range(aTar.shape[1]):
+        ymax1 = np.max(aEns[:,n])
+        ymax2 = np.max(aTar[:,n])
+        ymax = np.max([ymax1, ymax2]) if ymax1+ymax2>0 else 1
+        fig, ax = plt.subplots(figsize=((6, 2)))
+        ax.plot(times, aEns[:,n], alpha=0.5)
+        ax.plot(times, aTar[:,n], alpha=0.5, color='gray')
+        ax.set(xlabel='time (s)', ylabel=r"$a(t)$ (Hz)", xlim=((0, times[-1])), ylim=((0, ymax)), xticks=((0, times[-1])), yticks=((0, ymax)))
+        sns.despine()
+        plt.tight_layout()
+        plt.savefig(f'plots/DRT/training/stage{stage}_neuron{n}.pdf')
+        plt.close('all')

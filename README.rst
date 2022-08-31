@@ -1,4 +1,4 @@
-osNEF methods for constructing functional neural networks with biologically detailed neurons
+This repository contains osNEF methods for constructing functional neural networks with biologically detailed neurons. For questions or comments, please submit an issue, or email psipeter@gmail.com
 
 Clone the repository
 =======
@@ -31,3 +31,9 @@ Compile NEURON channel mechanisms detailed_neurons
   cd NEURON
 
   ../.venv/bin/nrnivmodl
+
+Run the simulations
+=======
+
+  python identity.py
+

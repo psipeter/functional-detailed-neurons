@@ -13,8 +13,7 @@ from nengolib.synapses import ss2sim
 from nengolib.signal import LinearSystem, cont2discrete
 
 from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
-from utils import LearningNode, trainDF, fitSinusoid
-from plotter import plotActivities
+from utils import LearningNode, trainDF, fitSinusoid, plotActivities
 
 import neuron
 
@@ -210,8 +209,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTrans=5, seed=0, w=2*
             dB, eB, wB = data['dB'], data['eB'], data['wB']
             np.savez(f"data/oscillate_{neuron_type}.npz",
                 dB=dB, eB=eB, wB=wB)
-            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
-                "oscillate", neuron_type, "bias", n, nTrain)
+            # plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+            #     "oscillate", neuron_type, "bias", n, nTrain)
 
     if 1 in load:
         data = np.load(f"data/oscillate_{neuron_type}.npz")
@@ -230,8 +229,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTrans=5, seed=0, w=2*
             np.savez(f"data/oscillate_{neuron_type}.npz",
                 dB=dB, eB=eB, wB=wB,
                 d0=d0, e0=e0, w0=w0)
-            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
-                "oscillate", neuron_type, "ens", n, nTrain)
+            # plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+            #     "oscillate", neuron_type, "ens", n, nTrain)
 
     if 2 in load:
         data = np.load(f"data/oscillate_{neuron_type}.npz")
@@ -299,8 +298,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTrans=5, seed=0, w=2*
                 d0=d0, e0=e0, w0=w0,
                 d1=d1, tauRise1=tauRise1, tauFall1=tauFall1,
                 e1=e1, w1=w1)
-            plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['tarA2'], dt=dt),
-                "oscillate", neuron_type, "ens2", n, nTrain)
+            # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['tarA2'], dt=dt),
+            #     "oscillate", neuron_type, "ens2", n, nTrain)
 
         print('check ens to ens2 connection')
         stim_func1, stim_func2 = makeSignal(10, phase=0.5, w=w)
@@ -311,8 +310,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate, tTrans=5, seed=0, w=2*
             d1=d1, f1=f1,
             e1=e1, w1=w1,
             fTarget=fTarget, fSmooth=fSmooth)
-        plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['tarA2'], dt=dt),
-            "oscillate", neuron_type, "ens2", -1, 0)
+        # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['tarA2'], dt=dt),
+        #     "oscillate", neuron_type, "ens2", -1, 0)
         times = data['times']
         tarX = data['tarX']
         tarX2 = data['tarX2']

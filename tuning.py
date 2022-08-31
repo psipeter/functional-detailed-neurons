@@ -4,13 +4,12 @@ import nengo
 from nengo import SpikingRectifiedLinear as ReLu
 from nengo.dists import Uniform, Choice
 from nengo.solvers import NoSolver
-from nengo.utils.ensemble import tuning_curves
+from nengo.utils.ensemble import tunings
 
 from nengolib import Lowpass, DoubleExp
 from nengolib.stats import ball, sphere
 
-from utils import LearningNode
-from plotter import plotActivities
+from utils import LearningNode, plotActivities
 from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
 
 import neuron
@@ -97,7 +96,7 @@ def run(neuron_type, nTrain, tTrain, tTest, rate, intercept, eRate,
 
     print(f'Neuron type: {neuron_type}')
     if load:
-        data = np.load(f"data/tuning_curve_{neuron_type}.npz")
+        data = np.load(f"data/tuning_{neuron_type}.npz")
         d, e, w = data['d'], data['e'], data['w']
     else:
         d, e, w = None, None, None
@@ -108,9 +107,9 @@ def run(neuron_type, nTrain, tTrain, tTest, rate, intercept, eRate,
                 d=d, e=e, w=w,
                 fTarget=fTarget, fSmooth=fSmooth, stim_func=stim_func)
             d, e, w = data['d'], data['e'], data['w']
-            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
-                "tuning_curve", neuron_type, "ens1", n, nTrain)
-        np.savez(f"data/tuning_curve_{neuron_type}.npz", d=d, e=e, w=w)
+            # plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+            #     "tuning", neuron_type, "ens1", n, nTrain)
+        np.savez(f"data/tuning_{neuron_type}.npz", d=d, e=e, w=w)
 
     stim_func = makeSignal(tTest, value=1.3, dt=dt, seed=100)
     data = go(neuron_type, learn=False,
@@ -129,7 +128,7 @@ def compare(neuron_types, nTrain=10, tTrain=10, tTest=100, rate=30, intercept=-0
     
     bins = np.linspace(-1, 1, nBins)
     if replot:
-        data = np.load("data/tuning_curve_final.npz")
+        data = np.load("data/tuning_final.npz")
         times, tarX, activities, CI_activities, mean_activities = data['times'], data['tarX'], data['activities'], data['CI_activities'], data['mean_activities']
         neuron_types.append('ReLu()')
     else:
@@ -169,7 +168,7 @@ def compare(neuron_types, nTrain=10, tTrain=10, tTest=100, rate=30, intercept=-0
             if mean_activities[-1][b] > 0:
                 CI_activities[-1][0][b] = sns.utils.ci(binned_activities[-1][b], which=95)[0]
                 CI_activities[-1][1][b] = sns.utils.ci(binned_activities[-1][b], which=95)[1]
-        np.savez("data/tuning_curve_final.npz",
+        np.savez("data/tuning_final.npz",
             times=times, tarX=tarX, activities=activities, CI_activities=CI_activities, mean_activities=mean_activities)
 
     fig, axes = plt.subplots(nrows=3, ncols=1, figsize=((5.25, 6)), gridspec_kw={'height_ratios': [1,1,2]})
@@ -189,9 +188,9 @@ def compare(neuron_types, nTrain=10, tTrain=10, tTest=100, rate=30, intercept=-0
         xlabel=r"$\mathbf{x}$", ylabel=r"$a$ (Hz)")
     axes[2].legend(loc='upper left', frameon=False)
     plt.tight_layout()
-    # fig.savefig("plots/figures/tuning_curve_combined_v2.pdf")
-    fig.savefig("plots/figures/tuning_curve_combined_v3.svg")
-    # fig.savefig('plots/figures/tuning_curve_combined_v2.tiff', dpi=600, format="tiff", pil_kwargs={"compression": "tiff_lzw"})
+    # fig.savefig("plots/figures/tuning_combined_v2.pdf")
+    fig.savefig("plots/figures/tuning_combined_v3.svg")
+    # fig.savefig('plots/figures/tuning_combined_v2.tiff', dpi=600, format="tiff", pil_kwargs={"compression": "tiff_lzw"})
 
 def ReLuDistribution():
     m = Uniform(20, 40)
@@ -200,7 +199,7 @@ def ReLuDistribution():
     with nengo.Network() as model:
         ens = nengo.Ensemble(100, 1, max_rates=m, intercepts=i, neuron_type=ReLu())
     with nengo.Simulator(model, progress_bar=False) as sim:
-        eval_points, activities = tuning_curves(ens, sim)
+        eval_points, activities = tunings(ens, sim)
     fig, ax = plt.subplots(figsize=((5.25, 2)))
     ax.plot(eval_points, activities, linewidth=0.5)
     ax.set(ylabel=r"Neural Activity $a$ (Hz)", xlabel=r"Input $\mathbf{x}$",
@@ -212,7 +211,7 @@ def ReLuDistribution():
 
 def voltageTrace(neuron_type, tTest=1, dt=1e-3,
         fTarget=DoubleExp(1e-3, 1e-1), fSmooth=DoubleExp(1e-3, 1e-1), rate=30, intercept=-0.3):
-    data = np.load(f"data/tuning_curve_{neuron_type}.npz")
+    data = np.load(f"data/tuning_{neuron_type}.npz")
     d, e, w = data['d'], data['e'], data['w']
     stim_func = lambda t: 1
     data = go(neuron_type, learn=False,
@@ -224,7 +223,7 @@ def voltageTrace(neuron_type, tTest=1, dt=1e-3,
     fig, ax = plt.subplots()
     ax.plot(times, voltage)
     ax.set(xlabel='time (s)')
-    fig.savefig(f'plots/tuning_curve/{neuron_type}/voltage.pdf')
+    fig.savefig(f'plots/tuning/{neuron_type}/voltage.pdf')
 
 # ReLuDistribution()
 # voltageTrace(NEURON('Pyramidal'))

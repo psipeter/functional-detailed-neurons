@@ -10,16 +10,16 @@ from nengo.utils.numpy import rmse
 
 from nengolib import Lowpass, DoubleExp
 
-from utils import LearningNode, trainDF, trainD
+from utils import LearningNode, trainDF, trainD, plotActivities
 from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
-from plotter import plotActivities
 
 import neuron
 
 import matplotlib.pyplot as plt
 
 import seaborn as sns
-palette = sns.color_palette('dark')
+# palette = sns.color_palette('dark')
+palette = sns.color_palette()
 sns.set_palette(palette)
 sns.set(context='paper', style='white', font='CMU Serif',
     rc={'font.size':10, 'mathtext.fontset': 'cm', 'axes.labelpad':0, 'axes.linewidth': 0.5})
@@ -115,8 +115,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 fTarget=fTarget, fSmooth=fSmooth, stim_func=stim_func)
             d, e, w = data['d'], data['e'], data['w']
             np.savez(f"data/adaptation_{neuron_type}.npz", d=d, e=e, w=w)
-            plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
-                "adaptation", neuron_type, "ens1", n, nTrain)
+            # plotActivities(data['times'], fSmooth.filt(data['ens'], dt=dt), fSmooth.filt(data['tarA'], dt=dt),
+            #     "adaptation", neuron_type, "ens1", n, nTrain)
 
     if 2 in load:
         data = np.load(f"data/adaptation_{neuron_type}.npz")
@@ -176,7 +176,7 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
         data = pd.read_pickle(f"data/adaptation.pkl")
     print(data)
 
-    fig, axes = plt.subplots(nrows=4, ncols=1, figsize=((5.2, 6)), gridspec_kw={'height_ratios': [2,2,1,1]})
+    fig, axes = plt.subplots(nrows=4, ncols=1, figsize=((5.2, 6)), gridspec_kw={'height_ratios': [1,1,2,2]})
     data_tarX = data.query("filter=='default' & trial==0 & neuron_type=='LIF'")
     sns.lineplot(data=data_tarX, x='t', y='tarX', color='k', ax=axes[0], linewidth=0.5)
     for i, neuron_type in enumerate(neuron_types):
@@ -195,16 +195,16 @@ def compare(neuron_types, eRates=[1e-6, 3e-6, 3e-7, 1e-7], nTrain=10, tTrain=10,
         fTrain = DoubleExp(rise, fall)
         nt = str(neuron_type)[:-2]
         if nt=='NEURON': nt='Pyramidal'
-        axes[2].plot(fTrain.ntrange(int(tFilter*1000)), fTrain.impulse(int(tFilter*1000)), color=palette[i])
+        axes[2].plot(fTrain.ntrange(int(tFilter*1000)), fTrain.impulse(int(tFilter*1000)), linewidth=0.5, color=palette[i])
             # label=f"{str(neuron_type)[:-2]}: " + r"$\tau_{\mathrm{rise}}=$"+f"{rise:.2f}s, " + r"$\tau_{\mathrm{fall}}=$"+f"{fall:.2f}s")
     fTarget = DoubleExp(1e-3, 1e-1)
-    axes[2].plot(fTarget.ntrange(int(tFilter*1000)), fTarget.impulse(int(tFilter*1000)), color='k')
+    axes[2].plot(fTarget.ntrange(int(tFilter*1000)), fTarget.impulse(int(tFilter*1000)), linewidth=0.5, color='k')
         # label=r"Default: $\tau_{\mathrm{rise}}=0.001$s, $\tau_{\mathrm{fall}}=0.1$s"))
     sns.barplot(data=data, x='neuron_type', y='error', hue='filter', ax=axes[3])
     axes[0].set(ylim=((-1,1)), yticks=((-1,1)), xlim=((0, tTest)), xticks=(()), xlabel=None, ylabel=r"$\mathbf{\hat{x}}(t)$", title="default filter")
     axes[1].set(ylim=((-1,1)), yticks=((-1,1)), xlim=((0, tTest)), xticks=((0, tTest)), xlabel="time (s)", ylabel=r"$\mathbf{\hat{x}}(t)$", title="trained filter")
     axes[2].set(ylim=((0, 10)), yticks=((0,10)), ylabel=r"$h(t)$", xlabel='time (s)', title='filter impulse response', xlim=((0, tFilter)), xticks=((0, tFilter)))
-    axes[3].set(ylim=((0, 0.15)), yticks=((0,0.15)), ylabel="error", title='improvements with trained filters', xlabel=None)
+    axes[3].set(ylim=((0, 0.15)), yticks=((0,0.15)), xticklabels=(('LIF', 'Izhikevich', 'Wilson', 'Pyramidal')), ylabel="error", title='improvements with trained filters', xlabel=None)
     axes[3].legend(frameon=False)
     plt.tight_layout()
     fig.savefig("plots/figures/adaptation_combined_v2.svg")

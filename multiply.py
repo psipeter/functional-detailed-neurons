@@ -11,8 +11,7 @@ from nengo.utils.numpy import rmse
 from nengolib import Lowpass, DoubleExp
 
 from neuron_types import LIF, Izhikevich, Wilson, NEURON, nrnReset
-from utils import LearningNode, trainDF
-from plotter import plotActivities
+from utils import LearningNode, trainDF, plotActivities
 
 import neuron
 
@@ -163,8 +162,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 stim_func1=stim_func1, stim_func2=stim_func2)
             d0, e0, w0 = data['d0'], data['e0'], data['w0']
             np.savez(f"data/multiply_{neuron_type}.npz", d0=d0, e0=e0, w0=w0)
-            plotActivities(data['times'], fSmooth.filt(data['ens1'], dt=dt), fSmooth.filt(data['tarA1'], dt=dt),
-                "multiply", neuron_type, "ens1", n, nTrain)
+            # plotActivities(data['times'], fSmooth.filt(data['ens1'], dt=dt), fSmooth.filt(data['tarA1'], dt=dt),
+            #     "multiply", neuron_type, "ens1", n, nTrain)
 
     if 1 in load:
         data = np.load(f"data/multiply_{neuron_type}.npz")
@@ -209,8 +208,8 @@ def run(neuron_type, nTrain, nTest, tTrain, tTest, eRate,
                 d0=d0, e0=e0, w0=w0,
                 d1=d1, tauRise1=tauRise1, tauFall1=tauFall1,
                 e1=e1, w1=w1)
-            plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['tarA2'], dt=dt),
-                "multiply", neuron_type, "ens2", n, nTrain)
+            # plotActivities(data['times'], fSmooth.filt(data['ens2'], dt=dt), fSmooth.filt(data['tarA2'], dt=dt),
+            #     "multiply", neuron_type, "ens2", n, nTrain)
 
     if 3 in load:
         d2, tauRise2, tauFall2 = data['d2'], data['tauRise2'], data['tauFall2']
